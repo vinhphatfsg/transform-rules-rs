@@ -124,6 +124,30 @@ fn transform_outputs_json() {
 }
 
 #[test]
+fn transform_outputs_ndjson() {
+    let base = fixtures_dir().join("t12_ndjson_csv");
+    let rules = base.join("rules.yaml");
+    let input = base.join("input.csv");
+    let expected = fs::read_to_string(base.join("expected.ndjson"))
+        .unwrap_or_else(|_| panic!("failed to read expected.ndjson"));
+
+    let mut cmd = cargo_bin_cmd!("transform-rules");
+    let output = cmd
+        .arg("transform")
+        .arg("-r")
+        .arg(rules)
+        .arg("-i")
+        .arg(input)
+        .arg("--ndjson")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(stdout, expected);
+}
+
+#[test]
 fn transform_writes_output_file() {
     let base = fixtures_dir().join("t01_csv_basic");
     let rules = base.join("rules.yaml");

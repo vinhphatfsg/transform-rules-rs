@@ -21,18 +21,86 @@ pub fn preflight_validate(
     preflight_validate_with_warnings(rule, input, context).map(|_| ())
 }
 
+#[derive(Debug)]
+pub struct TransformStreamItem {
+    pub output: JsonValue,
+    pub warnings: Vec<TransformWarning>,
+}
+
+pub struct TransformStream<'a> {
+    rule: &'a RuleFile,
+    context: Option<&'a JsonValue>,
+    records: InputRecordsIter<'a>,
+    done: bool,
+}
+
+impl<'a> TransformStream<'a> {
+    fn new(
+        rule: &'a RuleFile,
+        input: &'a str,
+        context: Option<&'a JsonValue>,
+    ) -> Result<Self, TransformError> {
+        let records = input_records_iter(rule, input)?;
+        Ok(Self {
+            rule,
+            context,
+            records,
+            done: false,
+        })
+    }
+}
+
+impl<'a> Iterator for TransformStream<'a> {
+    type Item = Result<TransformStreamItem, TransformError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+
+        let record = match self.records.next() {
+            None => {
+                self.done = true;
+                return None;
+            }
+            Some(Ok(record)) => record,
+            Some(Err(err)) => {
+                self.done = true;
+                return Some(Err(err));
+            }
+        };
+
+        let mut warnings = Vec::new();
+        match apply_mappings(self.rule, &record, self.context, &mut warnings) {
+            Ok(output) => Some(Ok(TransformStreamItem { output, warnings })),
+            Err(err) => {
+                self.done = true;
+                Some(Err(err))
+            }
+        }
+    }
+}
+
+pub fn transform_stream<'a>(
+    rule: &'a RuleFile,
+    input: &'a str,
+    context: Option<&'a JsonValue>,
+) -> Result<TransformStream<'a>, TransformError> {
+    TransformStream::new(rule, input, context)
+}
+
 pub fn transform_with_warnings(
     rule: &RuleFile,
     input: &str,
     context: Option<&JsonValue>,
 ) -> Result<(JsonValue, Vec<TransformWarning>), TransformError> {
-    let records = parse_input_records(rule, input)?;
-
-    let mut output_records = Vec::with_capacity(records.len());
     let mut warnings = Vec::new();
-    for record in records {
-        let out = apply_mappings(rule, &record, context, &mut warnings)?;
-        output_records.push(out);
+    let mut output_records = Vec::new();
+    let stream = transform_stream(rule, input, context)?;
+    for item in stream {
+        let item = item?;
+        warnings.extend(item.warnings);
+        output_records.push(item.output);
     }
 
     Ok((JsonValue::Array(output_records), warnings))
@@ -43,19 +111,13 @@ pub fn preflight_validate_with_warnings(
     input: &str,
     context: Option<&JsonValue>,
 ) -> Result<Vec<TransformWarning>, TransformError> {
-    let records = parse_input_records(rule, input)?;
     let mut warnings = Vec::new();
-    for record in records {
-        let _ = apply_mappings(rule, &record, context, &mut warnings)?;
+    let stream = transform_stream(rule, input, context)?;
+    for item in stream {
+        let item = item?;
+        warnings.extend(item.warnings);
     }
     Ok(warnings)
-}
-
-fn parse_input_records(rule: &RuleFile, input: &str) -> Result<Vec<JsonValue>, TransformError> {
-    match rule.input.format {
-        InputFormat::Csv => parse_csv(rule, input),
-        InputFormat::Json => parse_json(rule, input),
-    }
 }
 
 fn apply_mappings(
@@ -76,6 +138,138 @@ fn apply_mappings(
         }
     }
     Ok(out)
+}
+
+fn input_records_iter<'a>(
+    rule: &RuleFile,
+    input: &'a str,
+) -> Result<InputRecordsIter<'a>, TransformError> {
+    match rule.input.format {
+        InputFormat::Csv => Ok(InputRecordsIter::Csv(CsvRecordIter::new(rule, input)?)),
+        InputFormat::Json => Ok(InputRecordsIter::Json(JsonRecordIter::new(parse_json(
+            rule, input,
+        )?))),
+    }
+}
+
+enum InputRecordsIter<'a> {
+    Csv(CsvRecordIter<'a>),
+    Json(JsonRecordIter),
+}
+
+impl<'a> Iterator for InputRecordsIter<'a> {
+    type Item = Result<JsonValue, TransformError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            InputRecordsIter::Csv(iter) => iter.next(),
+            InputRecordsIter::Json(iter) => iter.next(),
+        }
+    }
+}
+
+struct CsvRecordIter<'a> {
+    reader: csv::Reader<&'a [u8]>,
+    headers: Vec<String>,
+    done: bool,
+}
+
+impl<'a> CsvRecordIter<'a> {
+    fn new(rule: &RuleFile, input: &'a str) -> Result<Self, TransformError> {
+        let csv_spec = rule.input.csv.as_ref().ok_or_else(|| {
+            TransformError::new(
+                TransformErrorKind::InvalidInput,
+                "input.csv is required when format=csv",
+            )
+        })?;
+
+        let delimiter_chars: Vec<char> = csv_spec.delimiter.chars().collect();
+        if delimiter_chars.len() != 1 {
+            return Err(TransformError::new(
+                TransformErrorKind::InvalidInput,
+                "csv.delimiter must be a single character",
+            ));
+        }
+        let delimiter = delimiter_chars[0] as u8;
+
+        let mut reader = ReaderBuilder::new()
+            .delimiter(delimiter)
+            .has_headers(csv_spec.has_header)
+            .from_reader(input.as_bytes());
+
+        let headers: Vec<String> = if csv_spec.has_header {
+            let header_record = reader.headers().map_err(|err| {
+                TransformError::new(
+                    TransformErrorKind::InvalidInput,
+                    format!("failed to read csv header: {}", err),
+                )
+            })?;
+            header_record.iter().map(|s| s.to_string()).collect()
+        } else {
+            let columns = csv_spec.columns.as_ref().ok_or_else(|| {
+                TransformError::new(
+                    TransformErrorKind::InvalidInput,
+                    "csv.columns is required when has_header=false",
+                )
+            })?;
+            columns.iter().map(|col| col.name.clone()).collect()
+        };
+
+        Ok(Self {
+            reader,
+            headers,
+            done: false,
+        })
+    }
+}
+
+impl<'a> Iterator for CsvRecordIter<'a> {
+    type Item = Result<JsonValue, TransformError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+
+        let mut record = csv::StringRecord::new();
+        match self.reader.read_record(&mut record) {
+            Ok(has_data) => {
+                if !has_data {
+                    self.done = true;
+                    return None;
+                }
+                let obj = record_to_object(&self.headers, &record);
+                Some(Ok(JsonValue::Object(obj)))
+            }
+            Err(err) => {
+                self.done = true;
+                Some(Err(TransformError::new(
+                    TransformErrorKind::InvalidInput,
+                    format!("failed to read csv record: {}", err),
+                )))
+            }
+        }
+    }
+}
+
+struct JsonRecordIter {
+    iter: std::vec::IntoIter<JsonValue>,
+}
+
+impl JsonRecordIter {
+    fn new(records: Vec<JsonValue>) -> Self {
+        Self {
+            iter: records.into_iter(),
+        }
+    }
+}
+
+impl Iterator for JsonRecordIter {
+    type Item = Result<JsonValue, TransformError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next().map(Ok)
+    }
 }
 
 fn parse_json(rule: &RuleFile, input: &str) -> Result<Vec<JsonValue>, TransformError> {
@@ -112,67 +306,6 @@ fn parse_json(rule: &RuleFile, input: &str) -> Result<Vec<JsonValue>, TransformE
             "records_path must point to an array or object",
         )),
     }
-}
-
-fn parse_csv(rule: &RuleFile, input: &str) -> Result<Vec<JsonValue>, TransformError> {
-    let csv_spec = rule.input.csv.as_ref().ok_or_else(|| {
-        TransformError::new(
-            TransformErrorKind::InvalidInput,
-            "input.csv is required when format=csv",
-        )
-    })?;
-
-    let delimiter_chars: Vec<char> = csv_spec.delimiter.chars().collect();
-    if delimiter_chars.len() != 1 {
-        return Err(TransformError::new(
-            TransformErrorKind::InvalidInput,
-            "csv.delimiter must be a single character",
-        ));
-    }
-    let delimiter = delimiter_chars[0] as u8;
-
-    let mut reader = ReaderBuilder::new()
-        .delimiter(delimiter)
-        .has_headers(csv_spec.has_header)
-        .from_reader(input.as_bytes());
-
-    let headers: Vec<String> = if csv_spec.has_header {
-        let header_record = reader
-            .headers()
-            .map_err(|err| {
-                TransformError::new(
-                    TransformErrorKind::InvalidInput,
-                    format!("failed to read csv header: {}", err),
-                )
-            })?
-            .clone();
-        header_record.iter().map(|s| s.to_string()).collect::<Vec<String>>()
-    } else {
-        let columns = csv_spec.columns.as_ref().ok_or_else(|| {
-            TransformError::new(
-                TransformErrorKind::InvalidInput,
-                "csv.columns is required when has_header=false",
-            )
-        })?;
-        columns
-            .iter()
-            .map(|col| col.name.clone())
-            .collect::<Vec<String>>()
-    };
-
-    let mut records = Vec::new();
-    for record in reader.records() {
-        let record = record.map_err(|err| {
-            TransformError::new(
-                TransformErrorKind::InvalidInput,
-                format!("failed to read csv record: {}", err),
-            )
-        })?;
-        let obj = record_to_object(&headers, &record);
-        records.push(JsonValue::Object(obj));
-    }
-
-    Ok(records)
 }
 
 fn record_to_object(headers: &[String], record: &csv::StringRecord) -> Map<String, JsonValue> {

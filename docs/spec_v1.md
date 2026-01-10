@@ -4,7 +4,7 @@
 
 ## 目的
 - 変換ロジックを YAML ルールとして外部化する
-- CSV/JSON 入力に対応し、JSON 配列として出力する
+- CSV/JSON 入力に対応し、JSON 配列または NDJSON として出力する
 - 途中で生成した出力値を参照できるようにする
 - 実行時に外部コンテキストを注入できるようにする
 
@@ -80,6 +80,13 @@ input:
   json:
     records_path: "items"
 ```
+
+## Output
+
+- 既定の出力は「変換結果の JSON 配列」
+- CLI の `transform` で `--ndjson` を指定すると 1 レコード 1 行の NDJSON を出力（大規模データ向け）
+- `records_path` が object を指す場合は 1 行のみ出力する
+- NDJSON は逐次書き込みで出力する（stdout/`--output` 共通）
 
 ## Mapping
 
@@ -221,7 +228,7 @@ expr:
 - `when` は mapping 処理の冒頭で評価し、`false` または評価エラーなら target を生成しない（評価エラーは warning）
 - `when` の評価では `missing` を `null` とみなし、`== null` は `missing/null` の両方で真になる
 - `when` が `false`/評価エラーでスキップされた場合、`required/default/type` の評価は行わない
-- 出力は常に JSON 配列
+- 出力は既定で JSON 配列。CLI の `transform --ndjson` 指定時は 1 レコード 1 行の NDJSON を逐次出力する
 
 ## プリフライト検証
 
@@ -444,6 +451,7 @@ mappings:
 - 入力: `--rules <PATH>`, `--input <PATH>`
 - 任意: `--format <csv|json>`（ルール内の `input.format` を上書き）
 - 任意: `--context <PATH>`（JSON）
+- 任意: `--ndjson`（1レコード1行の NDJSON を逐次出力）
 - 任意: `--output <PATH>`（指定時はファイルへ出力。未指定は標準出力。親ディレクトリは自動生成）
 - 任意: `--validate`（変換前にバリデーションを実行。未指定なら省略）
 

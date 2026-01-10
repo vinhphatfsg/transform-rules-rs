@@ -1,12 +1,13 @@
 use std::fs;
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde_json::json;
 use transform_rules::{
-    generate_dto, parse_rule_file, preflight_validate_with_warnings, transform_with_warnings,
-    validate_rule_file_with_source, DtoLanguage, InputFormat, RuleError, RuleFile, TransformError,
-    TransformErrorKind, TransformWarning,
+    generate_dto, parse_rule_file, preflight_validate_with_warnings, transform_stream,
+    transform_with_warnings, validate_rule_file_with_source, DtoLanguage, InputFormat, RuleError,
+    RuleFile, TransformError, TransformErrorKind, TransformWarning,
 };
 
 #[derive(Parser)]
@@ -59,6 +60,8 @@ struct TransformArgs {
     context: Option<PathBuf>,
     #[arg(short = 'o', long)]
     output: Option<PathBuf>,
+    #[arg(long)]
+    ndjson: bool,
     #[arg(short = 'v', long)]
     validate: bool,
     #[arg(short = 'e', long, default_value = "text")]
@@ -183,6 +186,16 @@ fn run_transform(args: TransformArgs) -> i32 {
         Err(code) => return code,
     };
 
+    if args.ndjson {
+        return run_transform_ndjson(
+            &rule,
+            &input,
+            context_value.as_ref(),
+            args.output,
+            args.error_format,
+        );
+    }
+
     let (output, warnings) = match transform_with_warnings(&rule, &input, context_value.as_ref())
     {
         Ok(result) => result,
@@ -217,6 +230,77 @@ fn run_transform(args: TransformArgs) -> i32 {
         }
     } else {
         println!("{}", output_text);
+    }
+
+    0
+}
+
+fn run_transform_ndjson(
+    rule: &RuleFile,
+    input: &str,
+    context: Option<&serde_json::Value>,
+    output: Option<PathBuf>,
+    error_format: ErrorFormat,
+) -> i32 {
+    let stream = match transform_stream(rule, input, context) {
+        Ok(stream) => stream,
+        Err(err) => {
+            emit_transform_error(&err, error_format);
+            return 3;
+        }
+    };
+
+    let writer: Box<dyn Write> = match output {
+        Some(path) => {
+            if let Some(parent) = path.parent() {
+                if !parent.as_os_str().is_empty() {
+                    if let Err(err) = fs::create_dir_all(parent) {
+                        eprintln!("failed to create output directory: {}", err);
+                        return 1;
+                    }
+                }
+            }
+            match fs::File::create(&path) {
+                Ok(file) => Box::new(file),
+                Err(err) => {
+                    eprintln!("failed to write output: {}", err);
+                    return 1;
+                }
+            }
+        }
+        None => Box::new(io::stdout()),
+    };
+
+    let mut writer = io::BufWriter::new(writer);
+
+    for item in stream {
+        let item = match item {
+            Ok(item) => item,
+            Err(err) => {
+                emit_transform_error(&err, error_format);
+                return 3;
+            }
+        };
+
+        emit_transform_warnings(&item.warnings, error_format);
+
+        let output_text = match serde_json::to_string(&item.output) {
+            Ok(text) => text,
+            Err(err) => {
+                eprintln!("failed to serialize output JSON: {}", err);
+                return 1;
+            }
+        };
+
+        if let Err(err) = writeln!(writer, "{}", output_text) {
+            eprintln!("failed to write output: {}", err);
+            return 1;
+        }
+    }
+
+    if let Err(err) = writer.flush() {
+        eprintln!("failed to write output: {}", err);
+        return 1;
     }
 
     0

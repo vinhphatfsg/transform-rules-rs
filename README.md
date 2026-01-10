@@ -80,6 +80,11 @@ transform-rules validate --rules rules.yaml
 transform-rules transform --rules rules.yaml --input input.json --context context.json
 ```
 
+### NDJSON output
+```
+transform-rules transform --rules rules.yaml --input input.json --ndjson
+```
+
 ### CSV example
 ```
 transform-rules transform --rules rules.yaml --input input.csv --format csv
@@ -187,6 +192,7 @@ transform-rules transform \
   -i <PATH> \
   [-f csv|json] \
   [-c <PATH>] \
+  [--ndjson] \
   [-o <PATH>] \
   [-v] \
   [-e text|json]
@@ -202,6 +208,7 @@ transform-rules generate \
 ```
 
 - `--format`: overrides `input.format` from the rule file.
+- `--ndjson`: output line-delimited JSON (one record per line).
 - `--output`: write output JSON to a file (default: stdout). Missing parent dirs are created.
 - `--validate`: run validation before transforming.
 - `--error-format`: output errors as text (default) or JSON.
