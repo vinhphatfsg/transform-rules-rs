@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde_json::json;
 use transform_rules::{
-    parse_rule_file, transform, validate_rule_file_with_source, InputFormat, RuleError, RuleFile,
-    TransformError, TransformErrorKind,
+    generate_dto, parse_rule_file, transform, validate_rule_file_with_source, DtoLanguage,
+    InputFormat, RuleError, RuleFile, TransformError, TransformErrorKind,
 };
 
 #[derive(Parser)]
@@ -20,6 +20,7 @@ struct Cli {
 enum Commands {
     Validate(ValidateArgs),
     Transform(TransformArgs),
+    Generate(GenerateArgs),
 }
 
 #[derive(Args)]
@@ -48,6 +49,18 @@ struct TransformArgs {
     error_format: ErrorFormat,
 }
 
+#[derive(Args)]
+struct GenerateArgs {
+    #[arg(short = 'r', long)]
+    rules: PathBuf,
+    #[arg(short = 'l', long)]
+    lang: DtoLanguageArg,
+    #[arg(short = 'n', long)]
+    name: Option<String>,
+    #[arg(short = 'o', long)]
+    output: Option<PathBuf>,
+}
+
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum ErrorFormat {
     Text,
@@ -60,11 +73,24 @@ enum FormatOverride {
     Json,
 }
 
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum DtoLanguageArg {
+    Rust,
+    #[value(alias = "ts")]
+    TypeScript,
+    Python,
+    Go,
+    Java,
+    Kotlin,
+    Swift,
+}
+
 fn main() {
     let cli = Cli::parse();
     let exit_code = match cli.command {
         Commands::Validate(args) => run_validate(args),
         Commands::Transform(args) => run_transform(args),
+        Commands::Generate(args) => run_generate(args),
     };
     std::process::exit(exit_code);
 }
@@ -160,6 +186,50 @@ fn run_transform(args: TransformArgs) -> i32 {
         }
     } else {
         println!("{}", output_text);
+    }
+
+    0
+}
+
+fn run_generate(args: GenerateArgs) -> i32 {
+    let (rule, _) = match load_rule(&args.rules) {
+        Ok(value) => value,
+        Err(code) => return code,
+    };
+
+    let lang = match args.lang {
+        DtoLanguageArg::Rust => DtoLanguage::Rust,
+        DtoLanguageArg::TypeScript => DtoLanguage::TypeScript,
+        DtoLanguageArg::Python => DtoLanguage::Python,
+        DtoLanguageArg::Go => DtoLanguage::Go,
+        DtoLanguageArg::Java => DtoLanguage::Java,
+        DtoLanguageArg::Kotlin => DtoLanguage::Kotlin,
+        DtoLanguageArg::Swift => DtoLanguage::Swift,
+    };
+
+    let output = match generate_dto(&rule, lang, args.name.as_deref()) {
+        Ok(text) => text,
+        Err(err) => {
+            eprintln!("failed to generate dto: {}", err);
+            return 1;
+        }
+    };
+
+    if let Some(path) = args.output {
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                if let Err(err) = fs::create_dir_all(parent) {
+                    eprintln!("failed to create output directory: {}", err);
+                    return 1;
+                }
+            }
+        }
+        if let Err(err) = fs::write(&path, output.as_bytes()) {
+            eprintln!("failed to write output: {}", err);
+            return 1;
+        }
+    } else {
+        println!("{}", output);
     }
 
     0

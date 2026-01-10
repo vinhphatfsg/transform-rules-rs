@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use crate::error::{ErrorCode, RuleError, ValidationResult};
 use crate::locator::YamlLocator;
 use crate::model::{Expr, ExprOp, ExprRef, InputFormat, Mapping, RuleFile};
+use crate::path::{parse_path, PathToken};
 
 pub fn validate_rule_file(rule: &RuleFile) -> ValidationResult {
     validate_rule_file_with_locator(rule, None)
@@ -67,10 +68,22 @@ fn validate_input(rule: &RuleFile, ctx: &mut ValidationCtx<'_>) {
             );
         }
     }
+
+    if let Some(json) = &rule.input.json {
+        if let Some(path) = json.records_path.as_deref() {
+            if parse_path(path).is_err() {
+                ctx.push(
+                    ErrorCode::InvalidPath,
+                    "records_path is invalid",
+                    "input.json.records_path",
+                );
+            }
+        }
+    }
 }
 
 fn validate_mappings(rule: &RuleFile, ctx: &mut ValidationCtx<'_>) {
-    let mut produced_targets: HashSet<String> = HashSet::new();
+    let mut produced_targets: HashSet<Vec<PathToken>> = HashSet::new();
 
     for (index, mapping) in rule.mappings.iter().enumerate() {
         let base = format!("mappings[{}]", index);
@@ -83,7 +96,30 @@ fn validate_mappings(rule: &RuleFile, ctx: &mut ValidationCtx<'_>) {
             );
         }
 
-        if produced_targets.contains(&mapping.target) {
+        let target_tokens = match parse_path(&mapping.target) {
+            Ok(tokens) => tokens,
+            Err(_) => {
+                ctx.push(
+                    ErrorCode::InvalidPath,
+                    "target path is invalid",
+                    format!("{}.target", base),
+                );
+                continue;
+            }
+        };
+        if target_tokens
+            .iter()
+            .any(|token| matches!(token, PathToken::Index(_)))
+        {
+            ctx.push(
+                ErrorCode::InvalidPath,
+                "target path must not include indexes",
+                format!("{}.target", base),
+            );
+            continue;
+        }
+
+        if produced_targets.contains(&target_tokens) {
             ctx.push(
                 ErrorCode::DuplicateTarget,
                 "mapping.target is duplicated",
@@ -125,7 +161,7 @@ fn validate_mappings(rule: &RuleFile, ctx: &mut ValidationCtx<'_>) {
             validate_expr(expr, &expr_path, &produced_targets, ctx);
         }
 
-        produced_targets.insert(mapping.target.clone());
+        produced_targets.insert(target_tokens);
     }
 }
 
@@ -146,25 +182,43 @@ fn count_value_fields(mapping: &Mapping) -> usize {
 fn validate_source(
     source: &str,
     base_path: &str,
-    produced_targets: &HashSet<String>,
+    produced_targets: &HashSet<Vec<PathToken>>,
     ctx: &mut ValidationCtx<'_>,
 ) {
-    if let Some(path) = source.strip_prefix("out.") {
-        let full_path = format!("{}.source", base_path);
-        if !produced_targets.contains(path) {
+    let full_path = format!("{}.source", base_path);
+    let (namespace, path) = match parse_source(source) {
+        Some(parsed) => parsed,
+        None => {
             ctx.push(
-                ErrorCode::ForwardOutReference,
-                "out reference must point to previous mappings",
+                ErrorCode::InvalidRefNamespace,
+                "ref namespace must be input|context|out",
                 full_path,
             );
+            return;
         }
+    };
+
+    let tokens = match parse_path(path) {
+        Ok(tokens) => tokens,
+        Err(_) => {
+            ctx.push(ErrorCode::InvalidPath, "path is invalid", full_path);
+            return;
+        }
+    };
+
+    if namespace == Namespace::Out && !out_ref_resolves(&tokens, produced_targets) {
+        ctx.push(
+            ErrorCode::ForwardOutReference,
+            "out reference must point to previous mappings",
+            full_path,
+        );
     }
 }
 
 fn validate_expr(
     expr: &Expr,
     base_path: &str,
-    produced_targets: &HashSet<String>,
+    produced_targets: &HashSet<Vec<PathToken>>,
     ctx: &mut ValidationCtx<'_>,
 ) {
     match expr {
@@ -177,7 +231,7 @@ fn validate_expr(
 fn validate_ref(
     expr_ref: &ExprRef,
     base_path: &str,
-    produced_targets: &HashSet<String>,
+    produced_targets: &HashSet<Vec<PathToken>>,
     ctx: &mut ValidationCtx<'_>,
 ) {
     let (namespace, path) = match parse_ref(&expr_ref.ref_path) {
@@ -192,7 +246,15 @@ fn validate_ref(
         }
     };
 
-    if namespace == Namespace::Out && !produced_targets.contains(path) {
+    let tokens = match parse_path(path) {
+        Ok(tokens) => tokens,
+        Err(_) => {
+            ctx.push(ErrorCode::InvalidPath, "path is invalid", base_path);
+            return;
+        }
+    };
+
+    if namespace == Namespace::Out && !out_ref_resolves(&tokens, produced_targets) {
         ctx.push(
             ErrorCode::ForwardOutReference,
             "out reference must point to previous mappings",
@@ -201,10 +263,30 @@ fn validate_ref(
     }
 }
 
+fn out_ref_resolves(tokens: &[PathToken], produced_targets: &HashSet<Vec<PathToken>>) -> bool {
+    let key_tokens: Vec<PathToken> = tokens
+        .iter()
+        .filter_map(|token| match token {
+            PathToken::Key(key) => Some(PathToken::Key(key.clone())),
+            PathToken::Index(_) => None,
+        })
+        .collect();
+    if key_tokens.is_empty() {
+        return false;
+    }
+
+    for end in (1..=key_tokens.len()).rev() {
+        if produced_targets.contains(&key_tokens[..end].to_vec()) {
+            return true;
+        }
+    }
+    false
+}
+
 fn validate_op(
     expr_op: &ExprOp,
     base_path: &str,
-    produced_targets: &HashSet<String>,
+    produced_targets: &HashSet<Vec<PathToken>>,
     ctx: &mut ValidationCtx<'_>,
 ) {
     if !is_valid_op(&expr_op.op) {
@@ -263,6 +345,26 @@ fn parse_ref(value: &str) -> Option<(Namespace, &str)> {
     Some((namespace, path))
 }
 
+fn parse_source(value: &str) -> Option<(Namespace, &str)> {
+    if let Some((prefix, path)) = value.split_once('.') {
+        if path.is_empty() {
+            return None;
+        }
+        let namespace = match prefix {
+            "input" => Namespace::Input,
+            "context" => Namespace::Context,
+            "out" => Namespace::Out,
+            _ => return None,
+        };
+        Some((namespace, path))
+    } else {
+        if value.is_empty() {
+            return None;
+        }
+        Some((Namespace::Input, value))
+    }
+}
+
 fn is_valid_type_name(value: &str) -> bool {
     matches!(value, "string" | "int" | "float" | "bool")
 }
@@ -299,6 +401,12 @@ fn validate_lookup_args(expr_op: &ExprOp, base_path: &str, ctx: &mut ValidationC
             "lookup key_path must be a non-empty string literal",
             format!("{}.args[1]", base_path),
         );
+    } else if parse_path(key_path.unwrap()).is_err() {
+        ctx.push(
+            ErrorCode::InvalidArgs,
+            "lookup key_path is invalid",
+            format!("{}.args[1]", base_path),
+        );
     }
 
     if len == 4 {
@@ -307,6 +415,12 @@ fn validate_lookup_args(expr_op: &ExprOp, base_path: &str, ctx: &mut ValidationC
             ctx.push(
                 ErrorCode::InvalidArgs,
                 "lookup output_path must be a non-empty string literal",
+                format!("{}.args[3]", base_path),
+            );
+        } else if parse_path(output_path.unwrap()).is_err() {
+            ctx.push(
+                ErrorCode::InvalidArgs,
+                "lookup output_path is invalid",
                 format!("{}.args[3]", base_path),
             );
         }

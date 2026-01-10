@@ -3,6 +3,7 @@ use serde_json::{Map, Value as JsonValue};
 
 use crate::error::{TransformError, TransformErrorKind};
 use crate::model::{Expr, ExprOp, ExprRef, InputFormat, RuleFile};
+use crate::path::{get_path, parse_path, PathToken};
 
 pub fn transform(
     rule: &RuleFile,
@@ -40,7 +41,11 @@ fn parse_json(rule: &RuleFile, input: &str) -> Result<Vec<JsonValue>, TransformE
 
     let records_value = match rule.input.json.as_ref().and_then(|j| j.records_path.as_deref()) {
         Some(path) => {
-            let found = get_path(&value, path).ok_or_else(|| {
+            let tokens = parse_path(path).map_err(|err| {
+                TransformError::new(TransformErrorKind::InvalidRecordsPath, err.message())
+                    .with_path("input.json.records_path")
+            })?;
+            let found = get_path(&value, &tokens).ok_or_else(|| {
                 TransformError::new(
                     TransformErrorKind::InvalidRecordsPath,
                     "records_path does not exist",
@@ -198,13 +203,18 @@ fn resolve_source(
 ) -> Result<EvalValue, TransformError> {
     let (namespace, path) = parse_source(source)
         .map_err(|err| err.with_path(format!("{}.source", mapping_path)))?;
+    let tokens = parse_path_tokens(
+        path,
+        TransformErrorKind::InvalidRef,
+        format!("{}.source", mapping_path),
+    )?;
     let target = match namespace {
         Namespace::Input => Some(record),
         Namespace::Context => context,
         Namespace::Out => Some(out),
     };
 
-    match target.and_then(|value| get_path(value, path)) {
+    match target.and_then(|value| get_path(value, &tokens)) {
         Some(value) => Ok(EvalValue::Value(value.clone())),
         None => Ok(EvalValue::Missing),
     }
@@ -232,13 +242,15 @@ fn eval_ref(
     base_path: &str,
 ) -> Result<EvalValue, TransformError> {
     let (namespace, path) = parse_ref(&expr_ref.ref_path).map_err(|err| err.with_path(base_path))?;
+    let tokens =
+        parse_path_tokens(path, TransformErrorKind::InvalidRef, base_path.to_string())?;
     let target = match namespace {
         Namespace::Input => Some(record),
         Namespace::Context => context,
         Namespace::Out => Some(out),
     };
 
-    match target.and_then(|value| get_path(value, path)) {
+    match target.and_then(|value| get_path(value, &tokens)) {
         Some(value) => Ok(EvalValue::Value(value.clone())),
         None => Ok(EvalValue::Missing),
     }
@@ -438,8 +450,12 @@ fn eval_lookup(
         )
         .with_path(format!("{}.args[1]", base_path)));
     }
+    let key_tokens = parse_path(key_path).map_err(|_| {
+        TransformError::new(TransformErrorKind::ExprError, "lookup key_path is invalid")
+            .with_path(format!("{}.args[1]", base_path))
+    })?;
 
-    let output_path = if args.len() == 4 {
+    let output_tokens = if args.len() == 4 {
         let value = literal_string(&args[3]).ok_or_else(|| {
             TransformError::new(
                 TransformErrorKind::ExprError,
@@ -454,7 +470,11 @@ fn eval_lookup(
             )
             .with_path(format!("{}.args[3]", base_path)));
         }
-        Some(value)
+        let tokens = parse_path(value).map_err(|_| {
+            TransformError::new(TransformErrorKind::ExprError, "lookup output_path is invalid")
+                .with_path(format!("{}.args[3]", base_path))
+        })?;
+        Some(tokens)
     } else {
         None
     };
@@ -475,7 +495,7 @@ fn eval_lookup(
 
     let mut results = Vec::new();
     for item in &collection_array {
-        let key_value = match get_path(item, key_path) {
+        let key_value = match get_path(item, &key_tokens) {
             Some(value) => value,
             None => continue,
         };
@@ -487,8 +507,8 @@ fn eval_lookup(
             continue;
         }
 
-        let selected = match output_path {
-            Some(path) => get_path(item, path),
+        let selected = match output_tokens.as_ref() {
+            Some(tokens) => get_path(item, tokens),
             None => Some(item),
         };
 
@@ -706,20 +726,14 @@ fn parse_ref(value: &str) -> Result<(Namespace, &str), TransformError> {
     Ok((namespace, path))
 }
 
-fn get_path<'a>(value: &'a JsonValue, path: &str) -> Option<&'a JsonValue> {
-    let mut current = value;
-    for segment in path.split('.') {
-        if segment.is_empty() {
-            return None;
-        }
-        match current {
-            JsonValue::Object(map) => {
-                current = map.get(segment)?;
-            }
-            _ => return None,
-        }
-    }
-    Some(current)
+fn parse_path_tokens(
+    path: &str,
+    kind: TransformErrorKind,
+    error_path: impl Into<String>,
+) -> Result<Vec<PathToken>, TransformError> {
+    parse_path(path).map_err(|err| {
+        TransformError::new(kind, err.message()).with_path(error_path.into())
+    })
 }
 
 fn set_path(
@@ -728,8 +742,12 @@ fn set_path(
     value: JsonValue,
     mapping_path: &str,
 ) -> Result<(), TransformError> {
-    let segments: Vec<&str> = path.split('.').collect();
-    if segments.is_empty() || segments.iter().any(|s| s.is_empty()) {
+    let tokens = parse_path_tokens(
+        path,
+        TransformErrorKind::InvalidTarget,
+        format!("{}.target", mapping_path),
+    )?;
+    if tokens.is_empty() {
         return Err(TransformError::new(
             TransformErrorKind::InvalidTarget,
             "target path is invalid",
@@ -738,16 +756,27 @@ fn set_path(
     }
 
     let mut current = root;
-    for (index, segment) in segments.iter().enumerate() {
-        let is_last = index == segments.len() - 1;
+    for (index, token) in tokens.iter().enumerate() {
+        let is_last = index == tokens.len() - 1;
+        let key = match token {
+            PathToken::Key(key) => key,
+            PathToken::Index(_) => {
+                return Err(TransformError::new(
+                    TransformErrorKind::InvalidTarget,
+                    "target path must not include indexes",
+                )
+                .with_path(format!("{}.target", mapping_path)))
+            }
+        };
+
         match current {
             JsonValue::Object(map) => {
                 if is_last {
-                    map.insert(segment.to_string(), value);
+                    map.insert(key.to_string(), value);
                     return Ok(());
                 }
 
-                let entry = map.entry(segment.to_string()).or_insert_with(|| {
+                let entry = map.entry(key.to_string()).or_insert_with(|| {
                     JsonValue::Object(Map::new())
                 });
                 if !entry.is_object() {

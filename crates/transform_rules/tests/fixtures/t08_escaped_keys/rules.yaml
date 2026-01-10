@@ -1,0 +1,11 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "profile_name"
+    source: 'input.user["profile.name"]'
+  - target: "root_id"
+    source: 'input.["a.b"].id'
+  - target: "item_key"
+    source: 'input.items[0]["key.name"]'

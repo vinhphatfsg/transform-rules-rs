@@ -1,0 +1,25 @@
+[
+  {
+    "items": [
+      { "id": "a1", "name": "Alpha" },
+      { "id": "a2", "name": "Beta" }
+    ],
+    "first_id": "a1",
+    "second_name": "Beta",
+    "flag0": true,
+    "flag0_default": true,
+    "third_id_default": "none",
+    "first_item_name": "Alpha",
+    "matrix_value": 20
+  },
+  {
+    "items": [
+      { "id": "b1", "name": "Gamma" }
+    ],
+    "first_id": "b1",
+    "flag0_default": false,
+    "third_id_default": "none",
+    "first_item_name": "Gamma",
+    "matrix_value": 20
+  }
+]

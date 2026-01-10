@@ -131,3 +131,22 @@ fn transform_validate_flag_reports_validation_error() {
 
     assert_eq!(output.status.code(), Some(2));
 }
+
+#[test]
+fn generate_outputs_rust_dto() {
+    let rules = fixtures_dir().join("t01_csv_basic").join("rules.yaml");
+
+    let mut cmd = cargo_bin_cmd!("transform-rules");
+    let output = cmd
+        .arg("generate")
+        .arg("-r")
+        .arg(rules)
+        .arg("-l")
+        .arg("rust")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("struct Record"));
+}
