@@ -28,6 +28,11 @@ crates/transform_rules/tests/fixtures/
     rules.yaml
     input.json
     expected.json
+  t06_lookup_context/
+    rules.yaml
+    input.json
+    context.json
+    expected.json
 
   r01_float_non_finite/
     rules.yaml
@@ -50,6 +55,9 @@ crates/transform_rules/tests/fixtures/
     rules.yaml
     expected_errors.json
   v06_invalid_delimiter_length/
+    rules.yaml
+    expected_errors.json
+  v07_invalid_lookup_args/
     rules.yaml
     expected_errors.json
 ```
@@ -247,6 +255,97 @@ mappings:
 ]
 ```
 
+### t06_lookup_context
+
+`rules.yaml`
+```yaml
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "id"
+    source: "id"
+  - target: "user_name"
+    expr:
+      op: "lookup_first"
+      args:
+        - { ref: "context.users" }
+        - "id"
+        - { ref: "input.user_id" }
+        - "name"
+  - target: "user_obj"
+    expr:
+      op: "lookup_first"
+      args:
+        - { ref: "context.users" }
+        - "id"
+        - { ref: "input.user_id" }
+  - target: "tags"
+    expr:
+      op: "lookup"
+      args:
+        - { ref: "context.tags" }
+        - "id"
+        - { ref: "input.tag_id" }
+        - "value"
+  - target: "primary_tag"
+    expr:
+      op: "coalesce"
+      args:
+        - { op: "lookup_first", args: [ { ref: "context.tags" }, "id", { ref: "input.tag_id" }, "value" ] }
+        - "N/A"
+```
+
+`input.json`
+```json
+[
+  { "id": "r1", "user_id": 10, "tag_id": "p1" },
+  { "id": "r2", "user_id": 2, "tag_id": "p2" },
+  { "id": "r3", "user_id": 3, "tag_id": "p3" }
+]
+```
+
+`context.json`
+```json
+{
+  "users": [
+    { "id": 10, "name": "Alice", "role": "admin" },
+    { "id": 10, "name": "Alicia", "role": "guest" },
+    { "id": 2, "name": null, "role": "member" }
+  ],
+  "tags": [
+    { "id": "p1", "value": "hot" },
+    { "id": "p1", "value": "sale" },
+    { "id": "p2", "value": "new" }
+  ]
+}
+```
+
+`expected.json`
+```json
+[
+  {
+    "id": "r1",
+    "user_name": "Alice",
+    "user_obj": { "id": 10, "name": "Alice", "role": "admin" },
+    "tags": ["hot", "sale"],
+    "primary_tag": "hot"
+  },
+  {
+    "id": "r2",
+    "user_name": null,
+    "user_obj": { "id": 2, "name": null, "role": "member" },
+    "tags": ["new"],
+    "primary_tag": "new"
+  },
+  {
+    "id": "r3",
+    "primary_tag": "N/A"
+  }
+]
+```
+
 ## 変換失敗ケース（ランタイム）
 
 ### r01_float_non_finite
@@ -414,5 +513,30 @@ mappings:
 ```json
 [
   { "code": "InvalidDelimiterLength", "path": "input.csv.delimiter" }
+]
+```
+
+### v07_invalid_lookup_args
+
+`rules.yaml`
+```yaml
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "user_name"
+    expr:
+      op: "lookup_first"
+      args:
+        - { ref: "context.users" }
+        - { ref: "input.id" }
+        - { ref: "input.id" }
+```
+
+`expected_errors.json`
+```json
+[
+  { "code": "InvalidArgs", "path": "mappings[0].expr.args[1]" }
 ]
 ```

@@ -6,6 +6,7 @@ A small Rust library and CLI to transform CSV/JSON data using YAML rules.
 - Rule-based mapping from CSV/JSON to JSON.
 - Static validation for rule files.
 - Expressions (concat/coalesce/trim/lowercase/uppercase/to_string).
+- lookup/lookup_first for array lookups from context.
 - Context injection for external reference data.
 - CLI output to stdout or file.
 - Error format as text or JSON.
@@ -78,29 +79,65 @@ transform-rules transform --rules rules.yaml --input input.json --context contex
 transform-rules transform --rules rules.yaml --input input.csv --format csv
 ```
 
+### lookup example
+`rules.yaml`
+```yaml
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "user_name"
+    expr:
+      op: "lookup_first"
+      args:
+        - { ref: "context.users" }
+        - "id"
+        - { ref: "input.user_id" }
+        - "name"
+```
+
+`input.json`
+```json
+[
+  { "user_id": 10 }
+]
+```
+
+`context.json`
+```json
+{
+  "users": [
+    { "id": 10, "name": "Alice" },
+    { "id": 2, "name": "Bob" }
+  ]
+}
+```
+
 ## CLI options
 
 ### validate
 ```
-transform-rules validate --rules <PATH> [--error-format text|json]
+transform-rules validate -r <PATH> [-e text|json]
 ```
 
 ### transform
 ```
 transform-rules transform \
-  --rules <PATH> \
-  --input <PATH> \
-  [--format csv|json] \
-  [--context <PATH>] \
-  [--output <PATH>] \
-  [--validate] \
-  [--error-format text|json]
+  -r <PATH> \
+  -i <PATH> \
+  [-f csv|json] \
+  [-c <PATH>] \
+  [-o <PATH>] \
+  [-v] \
+  [-e text|json]
 ```
 
 - `--format`: overrides `input.format` from the rule file.
-- `--output`: write output JSON to a file (default: stdout).
+- `--output`: write output JSON to a file (default: stdout). Missing parent dirs are created.
 - `--validate`: run validation before transforming.
 - `--error-format`: output errors as text (default) or JSON.
+  Short options: `-r/-i/-f/-c/-o/-v/-e`.
 
 ## Library usage (Rust)
 
@@ -128,3 +165,9 @@ Run CLI tests:
 ```
 cargo test -p transform_rules_cli
 ```
+
+Run perf test (ignored by default):
+```
+cargo test -p transform_rules --test performance -- --ignored --nocapture
+```
+Set `PERF_RECORDS`/`PERF_ITERS`/`PERF_USERS`/`PERF_TAGS` to adjust the workload.

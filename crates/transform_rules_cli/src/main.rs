@@ -24,27 +24,27 @@ enum Commands {
 
 #[derive(Args)]
 struct ValidateArgs {
-    #[arg(long)]
+    #[arg(short = 'r', long)]
     rules: PathBuf,
-    #[arg(long, default_value = "text")]
+    #[arg(short = 'e', long, default_value = "text")]
     error_format: ErrorFormat,
 }
 
 #[derive(Args)]
 struct TransformArgs {
-    #[arg(long)]
+    #[arg(short = 'r', long)]
     rules: PathBuf,
-    #[arg(long)]
+    #[arg(short = 'i', long)]
     input: PathBuf,
-    #[arg(long)]
+    #[arg(short = 'f', long)]
     format: Option<FormatOverride>,
-    #[arg(long)]
+    #[arg(short = 'c', long)]
     context: Option<PathBuf>,
-    #[arg(long)]
+    #[arg(short = 'o', long)]
     output: Option<PathBuf>,
-    #[arg(long)]
+    #[arg(short = 'v', long)]
     validate: bool,
-    #[arg(long, default_value = "text")]
+    #[arg(short = 'e', long, default_value = "text")]
     error_format: ErrorFormat,
 }
 
@@ -146,6 +146,14 @@ fn run_transform(args: TransformArgs) -> i32 {
     };
 
     if let Some(path) = args.output {
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                if let Err(err) = fs::create_dir_all(parent) {
+                    eprintln!("failed to create output directory: {}", err);
+                    return 1;
+                }
+            }
+        }
         if let Err(err) = fs::write(&path, output_text.as_bytes()) {
             eprintln!("failed to write output: {}", err);
             return 1;

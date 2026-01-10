@@ -1,0 +1,12 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "user_name"
+    expr:
+      op: "lookup_first"
+      args:
+        - { ref: "context.users" }
+        - { ref: "input.id" }
+        - { ref: "input.id" }

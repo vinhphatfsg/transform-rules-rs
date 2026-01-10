@@ -1,0 +1,36 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "id"
+    source: "id"
+  - target: "user_name"
+    expr:
+      op: "lookup_first"
+      args:
+        - { ref: "context.users" }
+        - "id"
+        - { ref: "input.user_id" }
+        - "name"
+  - target: "user_obj"
+    expr:
+      op: "lookup_first"
+      args:
+        - { ref: "context.users" }
+        - "id"
+        - { ref: "input.user_id" }
+  - target: "tags"
+    expr:
+      op: "lookup"
+      args:
+        - { ref: "context.tags" }
+        - "id"
+        - { ref: "input.tag_id" }
+        - "value"
+  - target: "primary_tag"
+    expr:
+      op: "coalesce"
+      args:
+        - { op: "lookup_first", args: [ { ref: "context.tags" }, "id", { ref: "input.tag_id" }, "value" ] }
+        - "N/A"

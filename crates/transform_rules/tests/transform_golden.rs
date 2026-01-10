@@ -106,6 +106,18 @@ fn t05_expr_transforms() {
     assert_eq!(output, expected);
 }
 
+#[test]
+fn t06_lookup_context() {
+    let base = fixtures_dir().join("t06_lookup_context");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let context = load_optional_json(&base.join("context.json"));
+    let expected = load_json(&base.join("expected.json"));
+    let output = transform(&rule, &input, context.as_ref()).expect("transform failed");
+    assert_eq!(output, expected);
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct ExpectedTransformError {
     kind: String,

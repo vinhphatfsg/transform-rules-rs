@@ -1,0 +1,20 @@
+[
+  {
+    "id": "r1",
+    "user_name": "Alice",
+    "user_obj": { "id": 10, "name": "Alice", "role": "admin" },
+    "tags": ["hot", "sale"],
+    "primary_tag": "hot"
+  },
+  {
+    "id": "r2",
+    "user_name": null,
+    "user_obj": { "id": 2, "name": null, "role": "member" },
+    "tags": ["new"],
+    "primary_tag": "new"
+  },
+  {
+    "id": "r3",
+    "primary_tag": "N/A"
+  }
+]

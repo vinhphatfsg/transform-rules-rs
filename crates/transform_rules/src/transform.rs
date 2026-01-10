@@ -339,6 +339,8 @@ fn eval_op(
                 Ok(JsonValue::String(s.to_uppercase()))
             },
         ),
+        "lookup" => eval_lookup(&expr_op.args, record, context, out, base_path, false),
+        "lookup_first" => eval_lookup(&expr_op.args, record, context, out, base_path, true),
         _ => Err(TransformError::new(
             TransformErrorKind::ExprError,
             "expr.op is not supported",
@@ -383,6 +385,128 @@ where
     }
 }
 
+fn eval_lookup(
+    args: &[Expr],
+    record: &JsonValue,
+    context: Option<&JsonValue>,
+    out: &JsonValue,
+    base_path: &str,
+    first_only: bool,
+) -> Result<EvalValue, TransformError> {
+    if !(3..=4).contains(&args.len()) {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "lookup args must be [collection, key_path, match_value, output_path?]",
+        )
+        .with_path(format!("{}.args", base_path)));
+    }
+
+    let collection_path = format!("{}.args[0]", base_path);
+    let collection = match eval_expr(&args[0], record, context, out, &collection_path)? {
+        EvalValue::Missing => return Ok(EvalValue::Missing),
+        EvalValue::Value(value) => value,
+    };
+    let collection_array = match collection {
+        JsonValue::Array(items) => items,
+        JsonValue::Null => {
+            return Err(TransformError::new(
+                TransformErrorKind::ExprError,
+                "lookup collection must be an array",
+            )
+            .with_path(collection_path))
+        }
+        _ => {
+            return Err(TransformError::new(
+                TransformErrorKind::ExprError,
+                "lookup collection must be an array",
+            )
+            .with_path(collection_path))
+        }
+    };
+
+    let key_path = literal_string(&args[1]).ok_or_else(|| {
+        TransformError::new(
+            TransformErrorKind::ExprError,
+            "lookup key_path must be a non-empty string literal",
+        )
+        .with_path(format!("{}.args[1]", base_path))
+    })?;
+    if key_path.is_empty() {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "lookup key_path must be a non-empty string literal",
+        )
+        .with_path(format!("{}.args[1]", base_path)));
+    }
+
+    let output_path = if args.len() == 4 {
+        let value = literal_string(&args[3]).ok_or_else(|| {
+            TransformError::new(
+                TransformErrorKind::ExprError,
+                "lookup output_path must be a non-empty string literal",
+            )
+            .with_path(format!("{}.args[3]", base_path))
+        })?;
+        if value.is_empty() {
+            return Err(TransformError::new(
+                TransformErrorKind::ExprError,
+                "lookup output_path must be a non-empty string literal",
+            )
+            .with_path(format!("{}.args[3]", base_path)));
+        }
+        Some(value)
+    } else {
+        None
+    };
+
+    let match_path = format!("{}.args[2]", base_path);
+    let match_value = match eval_expr(&args[2], record, context, out, &match_path)? {
+        EvalValue::Missing => return Ok(EvalValue::Missing),
+        EvalValue::Value(value) => value,
+    };
+    if match_value.is_null() {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "lookup match_value must not be null",
+        )
+        .with_path(match_path));
+    }
+    let match_key = value_to_string(&match_value, &match_path)?;
+
+    let mut results = Vec::new();
+    for item in &collection_array {
+        let key_value = match get_path(item, key_path) {
+            Some(value) => value,
+            None => continue,
+        };
+        let item_key = match value_to_string_optional(key_value) {
+            Some(value) => value,
+            None => continue,
+        };
+        if item_key != match_key {
+            continue;
+        }
+
+        let selected = match output_path {
+            Some(path) => get_path(item, path),
+            None => Some(item),
+        };
+
+        if let Some(value) = selected {
+            if first_only {
+                return Ok(EvalValue::Value(value.clone()));
+            }
+            results.push(value.clone());
+        }
+    }
+
+    if results.is_empty() {
+        Ok(EvalValue::Missing)
+    } else {
+        Ok(EvalValue::Value(JsonValue::Array(results)))
+    }
+}
+
 fn value_to_string(value: &JsonValue, path: &str) -> Result<String, TransformError> {
     match value {
         JsonValue::String(s) => Ok(s.clone()),
@@ -404,6 +528,15 @@ fn value_as_string(value: &JsonValue, path: &str) -> Result<String, TransformErr
             "value must be a string",
         )
         .with_path(path)),
+    }
+}
+
+fn value_to_string_optional(value: &JsonValue) -> Option<String> {
+    match value {
+        JsonValue::String(s) => Some(s.clone()),
+        JsonValue::Number(n) => Some(number_to_string(n)),
+        JsonValue::Bool(b) => Some(b.to_string()),
+        _ => None,
     }
 }
 
@@ -637,6 +770,13 @@ fn set_path(
     }
 
     Ok(())
+}
+
+fn literal_string(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Literal(value) => value.as_str(),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
