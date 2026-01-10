@@ -1,0 +1,16 @@
+[package]
+name = "transform_rules_mcp"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "transform-rules-mcp"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+transform_rules = { path = "../transform_rules" }
+
+[dev-dependencies]
+tempfile = "3.10"

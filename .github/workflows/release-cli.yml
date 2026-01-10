@@ -32,32 +32,36 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Build
-        run: cargo build -p transform_rules_cli --release --locked --target ${{ matrix.target }}
+        run: cargo build -p transform_rules_cli -p transform_rules_mcp --release --locked --target ${{ matrix.target }}
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME}"
-          BIN="transform-rules"
+          BIN_CLI="transform-rules"
+          BIN_MCP="transform-rules-mcp"
           OUT_DIR="dist"
           STAGING="staging"
           mkdir -p "$OUT_DIR" "$STAGING"
-          cp "target/${{ matrix.target }}/release/${BIN}" "$STAGING/"
-          tar -C "$STAGING" -czf "${OUT_DIR}/${BIN}-${VERSION}-${{ matrix.target }}.tar.gz" "$BIN"
+          cp "target/${{ matrix.target }}/release/${BIN_CLI}" "$STAGING/"
+          cp "target/${{ matrix.target }}/release/${BIN_MCP}" "$STAGING/"
+          tar -C "$STAGING" -czf "${OUT_DIR}/${BIN_CLI}-${VERSION}-${{ matrix.target }}.tar.gz" "$BIN_CLI" "$BIN_MCP"
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $Version = $env:GITHUB_REF_NAME
-          $Bin = 'transform-rules.exe'
+          $BinCli = 'transform-rules.exe'
+          $BinMcp = 'transform-rules-mcp.exe'
           $OutDir = 'dist'
           $Staging = 'staging'
           New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
           New-Item -ItemType Directory -Force -Path $Staging | Out-Null
-          Copy-Item "target\\${{ matrix.target }}\\release\\$Bin" "$Staging\\$Bin"
-          Compress-Archive -Path "$Staging\\$Bin" -DestinationPath "$OutDir\\transform-rules-$Version-${{ matrix.target }}.zip"
+          Copy-Item "target\\${{ matrix.target }}\\release\\$BinCli" "$Staging\\$BinCli"
+          Copy-Item "target\\${{ matrix.target }}\\release\\$BinMcp" "$Staging\\$BinMcp"
+          Compress-Archive -Path "$Staging\\$BinCli","$Staging\\$BinMcp" -DestinationPath "$OutDir\\transform-rules-$Version-${{ matrix.target }}.zip"
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
