@@ -67,6 +67,8 @@ fn valid_rules_should_pass_validation() {
         "t04_json_root_coalesce_default",
         "t05_expr_transforms",
         "t06_lookup_context",
+        "t07_array_index_paths",
+        "t08_escaped_keys",
     ];
 
     for case in cases {
@@ -88,6 +90,7 @@ fn invalid_rules_should_match_expected_errors() {
         "v05_unknown_op",
         "v06_invalid_delimiter_length",
         "v07_invalid_lookup_args",
+        "v08_invalid_path",
     ];
 
     for case in cases {

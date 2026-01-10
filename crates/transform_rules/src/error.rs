@@ -18,6 +18,7 @@ pub enum ErrorCode {
     UnknownOp,
     InvalidArgs,
     InvalidExprShape,
+    InvalidPath,
 
     InvalidTypeName,
 }
@@ -41,6 +42,7 @@ impl ErrorCode {
             ErrorCode::UnknownOp => "UnknownOp",
             ErrorCode::InvalidArgs => "InvalidArgs",
             ErrorCode::InvalidExprShape => "InvalidExprShape",
+            ErrorCode::InvalidPath => "InvalidPath",
             ErrorCode::InvalidTypeName => "InvalidTypeName",
         }
     }

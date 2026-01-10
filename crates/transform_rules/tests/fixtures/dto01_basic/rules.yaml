@@ -1,0 +1,34 @@
+version: 1
+input:
+  format: json
+mappings:
+  - target: "id"
+    source: "id"
+    type: "string"
+    required: true
+  - target: "user.name"
+    source: "name"
+  - target: "user.age"
+    source: "age"
+    type: "int"
+    required: true
+  - target: "price"
+    source: "price"
+    type: "float"
+  - target: "active"
+    source: "active"
+    type: "bool"
+    required: true
+  - target: "meta"
+    source: "meta"
+  - target: "user-name"
+    source: "user_name"
+  - target: "class"
+    source: "class"
+  - target: "status"
+    source: "status"
+    default: "active"
+    type: "string"
+  - target: "source"
+    value: "system"
+    type: "string"

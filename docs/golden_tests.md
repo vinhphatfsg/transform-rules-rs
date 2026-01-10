@@ -33,6 +33,25 @@ crates/transform_rules/tests/fixtures/
     input.json
     context.json
     expected.json
+  t07_array_index_paths/
+    rules.yaml
+    input.json
+    context.json
+    expected.json
+  t08_escaped_keys/
+    rules.yaml
+    input.json
+    expected.json
+
+  dto01_basic/
+    rules.yaml
+    expected_rust.rs
+    expected_typescript.ts
+    expected_python.py
+    expected_go.go
+    expected_java.java
+    expected_kotlin.kt
+    expected_swift.swift
 
   r01_float_non_finite/
     rules.yaml
@@ -58,6 +77,9 @@ crates/transform_rules/tests/fixtures/
     rules.yaml
     expected_errors.json
   v07_invalid_lookup_args/
+    rules.yaml
+    expected_errors.json
+  v08_invalid_path/
     rules.yaml
     expected_errors.json
 ```
@@ -346,6 +368,125 @@ mappings:
 ]
 ```
 
+### t07_array_index_paths
+
+`rules.yaml`
+```yaml
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "items"
+    source: "items"
+  - target: "first_id"
+    source: "input.items[0].id"
+  - target: "second_name"
+    source: "input.items[1].name"
+  - target: "flag0"
+    source: "input.meta.flags[0]"
+  - target: "flag0_default"
+    source: "input.meta.flags[0]"
+    default: false
+  - target: "third_id_default"
+    source: "input.items[2].id"
+    default: "none"
+  - target: "first_item_name"
+    expr: { ref: "out.items[0].name" }
+  - target: "matrix_value"
+    source: "context.matrix[1][0]"
+```
+
+`input.json`
+```json
+[
+  {
+    "items": [
+      { "id": "a1", "name": "Alpha" },
+      { "id": "a2", "name": "Beta" }
+    ],
+    "meta": { "flags": [true, false] }
+  },
+  {
+    "items": [
+      { "id": "b1", "name": "Gamma" }
+    ],
+    "meta": { "flags": [] }
+  }
+]
+```
+
+`context.json`
+```json
+{
+  "matrix": [[10, 11], [20, 21]]
+}
+```
+
+`expected.json`
+```json
+[
+  {
+    "items": [
+      { "id": "a1", "name": "Alpha" },
+      { "id": "a2", "name": "Beta" }
+    ],
+    "first_id": "a1",
+    "second_name": "Beta",
+    "flag0": true,
+    "flag0_default": true,
+    "third_id_default": "none",
+    "first_item_name": "Alpha",
+    "matrix_value": 20
+  },
+  {
+    "items": [
+      { "id": "b1", "name": "Gamma" }
+    ],
+    "first_id": "b1",
+    "flag0_default": false,
+    "third_id_default": "none",
+    "first_item_name": "Gamma",
+    "matrix_value": 20
+  }
+]
+```
+
+### t08_escaped_keys
+
+`rules.yaml`
+```yaml
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "profile_name"
+    source: 'input.user["profile.name"]'
+  - target: "root_id"
+    source: 'input.["a.b"].id'
+  - target: "item_key"
+    source: 'input.items[0]["key.name"]'
+```
+
+`input.json`
+```json
+[
+  {
+    "user": { "profile.name": "Alice" },
+    "a.b": { "id": 7 },
+    "items": [ { "key.name": "v1" } ]
+  }
+]
+```
+
+`expected.json`
+```json
+[
+  { "profile_name": "Alice", "root_id": 7, "item_key": "v1" }
+]
+```
+
 ## 変換失敗ケース（ランタイム）
 
 ### r01_float_non_finite
@@ -540,3 +681,30 @@ mappings:
   { "code": "InvalidArgs", "path": "mappings[0].expr.args[1]" }
 ]
 ```
+
+### v08_invalid_path
+
+`rules.yaml`
+```yaml
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "items[0]"
+    source: "input.id"
+```
+
+`expected_errors.json`
+```json
+[
+  { "code": "InvalidPath", "path": "mappings[0].target" }
+]
+```
+
+## DTO生成ケース
+
+### dto01_basic
+
+`rules.yaml` を入力に各言語のDTO出力を比較する。
+期待値は `expected_<lang>.<ext>` を使用する。

@@ -1,0 +1,7 @@
+[
+  {
+    "user": { "profile.name": "Alice" },
+    "a.b": { "id": 7 },
+    "items": [ { "key.name": "v1" } ]
+  }
+]

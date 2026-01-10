@@ -1,0 +1,7 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "items[0]"
+    source: "input.id"
