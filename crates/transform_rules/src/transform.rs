@@ -646,6 +646,13 @@ fn type_cast_error(type_name: &str, path: &str) -> TransformError {
 }
 
 fn parse_source(source: &str) -> Result<(Namespace, &str), TransformError> {
+    if source.is_empty() {
+        return Err(TransformError::new(
+            TransformErrorKind::InvalidRef,
+            "reference path is empty",
+        ));
+    }
+
     if let Some((prefix, path)) = source.split_once('.') {
         if path.is_empty() {
             return Err(TransformError::new(
@@ -654,26 +661,17 @@ fn parse_source(source: &str) -> Result<(Namespace, &str), TransformError> {
             ));
         }
         let namespace = match prefix {
-            "input" => Namespace::Input,
-            "context" => Namespace::Context,
-            "out" => Namespace::Out,
-            _ => {
-                return Err(TransformError::new(
-                    TransformErrorKind::InvalidRef,
-                    "ref namespace must be input|context|out",
-                ))
-            }
+            "input" => Some(Namespace::Input),
+            "context" => Some(Namespace::Context),
+            "out" => Some(Namespace::Out),
+            _ => None,
         };
-        Ok((namespace, path))
-    } else {
-        if source.is_empty() {
-            return Err(TransformError::new(
-                TransformErrorKind::InvalidRef,
-                "reference path is empty",
-            ));
+        if let Some(namespace) = namespace {
+            return Ok((namespace, path));
         }
-        Ok((Namespace::Input, source))
     }
+
+    Ok((Namespace::Input, source))
 }
 
 fn parse_ref(value: &str) -> Result<(Namespace, &str), TransformError> {
@@ -706,17 +704,69 @@ fn parse_ref(value: &str) -> Result<(Namespace, &str), TransformError> {
     Ok((namespace, path))
 }
 
-fn get_path<'a>(value: &'a JsonValue, path: &str) -> Option<&'a JsonValue> {
-    let mut current = value;
+enum PathToken {
+    Key(String),
+    Index(usize),
+}
+
+fn parse_path_tokens(path: &str) -> Option<Vec<PathToken>> {
+    if path.is_empty() {
+        return None;
+    }
+
+    let mut tokens = Vec::new();
     for segment in path.split('.') {
         if segment.is_empty() {
             return None;
         }
-        match current {
-            JsonValue::Object(map) => {
-                current = map.get(segment)?;
+
+        let mut rest = segment;
+        let key_end = rest.find('[').unwrap_or(rest.len());
+        let key = &rest[..key_end];
+        if key.is_empty() {
+            return None;
+        }
+        if key.contains(']') {
+            return None;
+        }
+        tokens.push(PathToken::Key(key.to_string()));
+        rest = &rest[key_end..];
+
+        while !rest.is_empty() {
+            if !rest.starts_with('[') {
+                return None;
             }
-            _ => return None,
+            let close = rest.find(']')?;
+            let num_str = &rest[1..close];
+            if num_str.is_empty() || !num_str.chars().all(|c| c.is_ascii_digit()) {
+                return None;
+            }
+            let index: usize = num_str.parse().ok()?;
+            tokens.push(PathToken::Index(index));
+            rest = &rest[close + 1..];
+        }
+    }
+
+    Some(tokens)
+}
+
+fn get_path<'a>(value: &'a JsonValue, path: &str) -> Option<&'a JsonValue> {
+    let tokens = parse_path_tokens(path)?;
+    let mut current = value;
+    for token in tokens {
+        match token {
+            PathToken::Key(key) => match current {
+                JsonValue::Object(map) => {
+                    current = map.get(&key)?;
+                }
+                _ => return None,
+            },
+            PathToken::Index(index) => match current {
+                JsonValue::Array(items) => {
+                    current = items.get(index)?;
+                }
+                _ => return None,
+            },
         }
     }
     Some(current)

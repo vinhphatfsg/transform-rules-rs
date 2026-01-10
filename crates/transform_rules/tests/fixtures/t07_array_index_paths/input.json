@@ -1,0 +1,15 @@
+[
+  {
+    "items": [
+      { "id": "a1", "name": "Alpha" },
+      { "id": "a2", "name": "Beta" }
+    ],
+    "meta": { "flags": [true, false] }
+  },
+  {
+    "items": [
+      { "id": "b1", "name": "Gamma" }
+    ],
+    "meta": { "flags": [] }
+  }
+]

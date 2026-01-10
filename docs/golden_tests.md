@@ -33,6 +33,11 @@ crates/transform_rules/tests/fixtures/
     input.json
     context.json
     expected.json
+  t07_array_index_paths/
+    rules.yaml
+    input.json
+    context.json
+    expected.json
 
   r01_float_non_finite/
     rules.yaml
@@ -342,6 +347,90 @@ mappings:
   {
     "id": "r3",
     "primary_tag": "N/A"
+  }
+]
+```
+
+### t07_array_index_paths
+
+`rules.yaml`
+```yaml
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "items"
+    source: "items"
+  - target: "first_id"
+    source: "items[0].id"
+  - target: "second_name"
+    source: "items[1].name"
+  - target: "flag0"
+    source: "meta.flags[0]"
+  - target: "flag0_default"
+    source: "meta.flags[0]"
+    default: false
+  - target: "third_id_default"
+    source: "items[2].id"
+    default: "none"
+  - target: "first_item_name"
+    expr: { ref: "out.items[0].name" }
+  - target: "matrix_value"
+    source: "context.matrix[1][0]"
+```
+
+`input.json`
+```json
+[
+  {
+    "items": [
+      { "id": "a1", "name": "Alpha" },
+      { "id": "a2", "name": "Beta" }
+    ],
+    "meta": { "flags": [true, false] }
+  },
+  {
+    "items": [
+      { "id": "b1", "name": "Gamma" }
+    ],
+    "meta": { "flags": [] }
+  }
+]
+```
+
+`context.json`
+```json
+{
+  "matrix": [[10, 11], [20, 21]]
+}
+```
+
+`expected.json`
+```json
+[
+  {
+    "items": [
+      { "id": "a1", "name": "Alpha" },
+      { "id": "a2", "name": "Beta" }
+    ],
+    "first_id": "a1",
+    "second_name": "Beta",
+    "flag0": true,
+    "flag0_default": true,
+    "third_id_default": "none",
+    "first_item_name": "Alpha",
+    "matrix_value": 20
+  },
+  {
+    "items": [
+      { "id": "b1", "name": "Gamma" }
+    ],
+    "first_id": "b1",
+    "flag0_default": false,
+    "third_id_default": "none",
+    "first_item_name": "Gamma",
+    "matrix_value": 20
   }
 ]
 ```

@@ -67,6 +67,7 @@ fn valid_rules_should_pass_validation() {
         "t04_json_root_coalesce_default",
         "t05_expr_transforms",
         "t06_lookup_context",
+        "t07_array_index_paths",
     ];
 
     for case in cases {

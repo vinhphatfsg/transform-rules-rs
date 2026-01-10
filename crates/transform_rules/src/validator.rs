@@ -151,7 +151,7 @@ fn validate_source(
 ) {
     if let Some(path) = source.strip_prefix("out.") {
         let full_path = format!("{}.source", base_path);
-        if !produced_targets.contains(path) {
+        if !out_ref_resolves(path, produced_targets) {
             ctx.push(
                 ErrorCode::ForwardOutReference,
                 "out reference must point to previous mappings",
@@ -192,13 +192,48 @@ fn validate_ref(
         }
     };
 
-    if namespace == Namespace::Out && !produced_targets.contains(path) {
+    if namespace == Namespace::Out && !out_ref_resolves(path, produced_targets) {
         ctx.push(
             ErrorCode::ForwardOutReference,
             "out reference must point to previous mappings",
             base_path,
         );
     }
+}
+
+fn out_ref_resolves(path: &str, produced_targets: &HashSet<String>) -> bool {
+    let normalized = strip_indexes(path);
+    if normalized.is_empty() {
+        return false;
+    }
+
+    let mut parts: Vec<&str> = normalized.split('.').collect();
+    while !parts.is_empty() {
+        let candidate = parts.join(".");
+        if produced_targets.contains(&candidate) {
+            return true;
+        }
+        parts.pop();
+    }
+    false
+}
+
+fn strip_indexes(path: &str) -> String {
+    let mut result = String::new();
+    let mut chars = path.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '[' => {
+                while let Some(next) = chars.next() {
+                    if next == ']' {
+                        break;
+                    }
+                }
+            }
+            _ => result.push(ch),
+        }
+    }
+    result
 }
 
 fn validate_op(

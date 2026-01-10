@@ -1,0 +1,23 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "items"
+    source: "items"
+  - target: "first_id"
+    source: "items[0].id"
+  - target: "second_name"
+    source: "items[1].name"
+  - target: "flag0"
+    source: "meta.flags[0]"
+  - target: "flag0_default"
+    source: "meta.flags[0]"
+    default: false
+  - target: "third_id_default"
+    source: "items[2].id"
+    default: "none"
+  - target: "first_item_name"
+    expr: { ref: "out.items[0].name" }
+  - target: "matrix_value"
+    source: "context.matrix[1][0]"

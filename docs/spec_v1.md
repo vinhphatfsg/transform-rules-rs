@@ -144,7 +144,7 @@ expr:
 ### lookup / lookup_first
 - args: `[collection, key_path, match_value, output_path?]`
 - `collection`: 配列を返す Expr（例: `{ ref: "context.users" }`）
-- `key_path`: 文字列リテラル（ドットパス。例: `"id"` / `"meta.code"`）
+- `key_path`: 文字列リテラル（ドットパス。例: `"id"` / `"meta.code"` / `"items[0].id"`）
 - `match_value`: Expr
 - `output_path`（任意）: 文字列リテラル（ドットパス。省略時は一致したオブジェクトを返す）
 - 一致判定は「両方を文字列化して比較」（CSV 互換のため）
@@ -165,6 +165,11 @@ expr:
 - `out.*`: 既に生成済みの出力
 
 `source` は namespace を省略可能（省略時は `input.*`）。
+
+ドットパスは配列インデックスをサポートします（0 始まりの非負整数）。
+例: `items[0].id`, `context.matrix[1][0]`
+- 配列以外/範囲外は `missing` 扱い
+- `[` `]` を含むキー名のエスケープは v1 では未対応
 
 例:
 - `source: "id"` は `input.id` を意味する
