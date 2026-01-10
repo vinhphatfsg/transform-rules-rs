@@ -1,4 +1,4 @@
-# Transform Rules (Rust)
+# Transform Rules
 
 A small Rust library and CLI to transform CSV/JSON data using YAML rules.
 
