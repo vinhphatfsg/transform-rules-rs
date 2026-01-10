@@ -24,7 +24,7 @@ fn validate_success_returns_zero() {
     let mut cmd = cargo_bin_cmd!("transform-rules");
     let output = cmd
         .arg("validate")
-        .arg("--rules")
+        .arg("-r")
         .arg(rules)
         .output()
         .unwrap();
@@ -39,9 +39,9 @@ fn validate_json_errors() {
     let mut cmd = cargo_bin_cmd!("transform-rules");
     let output = cmd
         .arg("validate")
-        .arg("--rules")
+        .arg("-r")
         .arg(rules)
-        .arg("--error-format")
+        .arg("-e")
         .arg("json")
         .output()
         .unwrap();
@@ -65,11 +65,11 @@ fn transform_outputs_json() {
     let mut cmd = cargo_bin_cmd!("transform-rules");
     let output = cmd
         .arg("transform")
-        .arg("--rules")
+        .arg("-r")
         .arg(rules)
-        .arg("--input")
+        .arg("-i")
         .arg(input)
-        .arg("--context")
+        .arg("-c")
         .arg(context)
         .output()
         .unwrap();
@@ -89,16 +89,16 @@ fn transform_writes_output_file() {
     let expected = read_json(&base.join("expected.json"));
 
     let temp_dir = tempfile::tempdir().unwrap();
-    let out_path = temp_dir.path().join("out.json");
+    let out_path = temp_dir.path().join("nested").join("out.json");
 
     let mut cmd = cargo_bin_cmd!("transform-rules");
     let output = cmd
         .arg("transform")
-        .arg("--rules")
+        .arg("-r")
         .arg(rules)
-        .arg("--input")
+        .arg("-i")
         .arg(input)
-        .arg("--output")
+        .arg("-o")
         .arg(&out_path)
         .output()
         .unwrap();
@@ -121,11 +121,11 @@ fn transform_validate_flag_reports_validation_error() {
     let mut cmd = cargo_bin_cmd!("transform-rules");
     let output = cmd
         .arg("transform")
-        .arg("--rules")
+        .arg("-r")
         .arg(rules)
-        .arg("--input")
+        .arg("-i")
         .arg(input)
-        .arg("--validate")
+        .arg("-v")
         .output()
         .unwrap();
 
