@@ -863,7 +863,16 @@ fn render_python(schema: &SchemaNode, name: &str) -> Result<String, DtoError> {
             continue;
         }
 
+        struct RenderField {
+            key: String,
+            ident: String,
+            field_type: String,
+            optional: bool,
+            rename: bool,
+        }
+
         let mut used = HashMap::new();
+        let mut fields = Vec::new();
         for field in &def.node.fields {
             let ident = field_identifier(DtoLanguage::Python, &field.key, &mut used);
             let rename = ident != field.key;
@@ -872,27 +881,40 @@ fn render_python(schema: &SchemaNode, name: &str) -> Result<String, DtoError> {
                 _ => field.optional,
             };
             let field_type = python_type_for_field(field, &def.path, &registry, optional);
+            fields.push(RenderField {
+                key: field.key.clone(),
+                ident,
+                field_type,
+                optional,
+                rename,
+            });
+        }
 
-            if rename {
+        for field in fields
+            .iter()
+            .filter(|field| !field.optional)
+            .chain(fields.iter().filter(|field| field.optional))
+        {
+            if field.rename {
                 out.push_str(&format!("    # json: \"{}\"\n", field.key));
             }
 
-            if rename {
-                if optional {
+            if field.rename {
+                if field.optional {
                     out.push_str(&format!(
                         "    {}: {} = field(default=None, metadata={{\"json_key\": \"{}\"}})\n",
-                        ident, field_type, field.key
+                        field.ident, field.field_type, field.key
                     ));
                 } else {
                     out.push_str(&format!(
                         "    {}: {} = field(metadata={{\"json_key\": \"{}\"}})\n",
-                        ident, field_type, field.key
+                        field.ident, field.field_type, field.key
                     ));
                 }
-            } else if optional {
-                out.push_str(&format!("    {}: {} = None\n", ident, field_type));
+            } else if field.optional {
+                out.push_str(&format!("    {}: {} = None\n", field.ident, field.field_type));
             } else {
-                out.push_str(&format!("    {}: {}\n", ident, field_type));
+                out.push_str(&format!("    {}: {}\n", field.ident, field.field_type));
             }
         }
         out.push('\n');
@@ -1019,7 +1041,8 @@ fn render_java(schema: &SchemaNode, name: &str) -> Result<String, DtoError> {
     }
 
     for def in defs {
-        out.push_str(&format!("public class {} {{\n", def.name));
+        let visibility = if def.path.is_empty() { "public " } else { "" };
+        out.push_str(&format!("{}class {} {{\n", visibility, def.name));
         let mut used = HashMap::new();
         for field in &def.node.fields {
             let ident = field_identifier(DtoLanguage::Java, &field.key, &mut used);
