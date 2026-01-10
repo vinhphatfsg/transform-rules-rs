@@ -1,0 +1,9 @@
+version: 1
+input:
+  format: csv
+  csv:
+    has_header: true
+    delimiter: "||"
+mappings:
+  - target: "id"
+    source: "id"

@@ -1,0 +1,5 @@
+[
+  { "name": "A", "nickname": "Alpha", "status": "OK" },
+  { "nickname": "Beta" },
+  { "name": null, "nickname": "Gamma" }
+]

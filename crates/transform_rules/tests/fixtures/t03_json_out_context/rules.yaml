@@ -1,0 +1,20 @@
+version: 1
+input:
+  format: json
+  json:
+    records_path: "items"
+mappings:
+  - target: "id"
+    source: "id"
+  - target: "price"
+    source: "price"
+    type: "float"
+  - target: "text"
+    expr:
+      op: "concat"
+      args:
+        - { ref: "out.id" }
+        - "-"
+        - { ref: "out.price" }
+  - target: "tenant"
+    source: "context.tenant_id"

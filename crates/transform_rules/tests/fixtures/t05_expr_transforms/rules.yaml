@@ -1,0 +1,16 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "email_norm"
+    expr:
+      op: "lowercase"
+      args:
+        - { op: "trim", args: [ { ref: "input.email" } ] }
+  - target: "label"
+    expr:
+      op: "concat"
+      args:
+        - "u-"
+        - { op: "to_string", args: [ { ref: "input.code" } ] }

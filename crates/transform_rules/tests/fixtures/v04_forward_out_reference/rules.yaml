@@ -1,0 +1,16 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "text"
+    expr:
+      op: "concat"
+      args:
+        - { ref: "out.id" }
+        - "-"
+        - { ref: "out.price" }
+  - target: "id"
+    source: "id"
+  - target: "price"
+    source: "price"

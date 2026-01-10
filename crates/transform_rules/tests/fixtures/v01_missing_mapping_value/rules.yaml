@@ -1,0 +1,7 @@
+version: 1
+input:
+  format: csv
+  csv:
+    has_header: true
+mappings:
+  - target: "id"

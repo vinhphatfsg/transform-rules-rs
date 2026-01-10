@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/transform_rules", "crates/transform_rules_cli"]
+resolver = "2"

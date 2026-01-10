@@ -1,0 +1,5 @@
+[
+  { "display": "A", "status": "OK" },
+  { "display": "Beta", "status": "NEW" },
+  { "display": "Gamma", "status": "NEW" }
+]

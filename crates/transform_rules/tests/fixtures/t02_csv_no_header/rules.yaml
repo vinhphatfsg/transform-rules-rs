@@ -1,0 +1,13 @@
+version: 1
+input:
+  format: csv
+  csv:
+    has_header: false
+    columns:
+      - { name: "id" }
+      - { name: "name" }
+mappings:
+  - target: "id"
+    source: "id"
+  - target: "name"
+    source: "name"

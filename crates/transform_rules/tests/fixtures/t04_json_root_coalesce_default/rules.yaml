@@ -1,0 +1,15 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "display"
+    expr:
+      op: "coalesce"
+      args:
+        - { ref: "input.name" }
+        - { ref: "input.nickname" }
+        - "unknown"
+  - target: "status"
+    source: "status"
+    default: "NEW"

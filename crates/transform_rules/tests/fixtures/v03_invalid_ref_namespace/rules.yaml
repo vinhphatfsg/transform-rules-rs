@@ -1,0 +1,7 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "id"
+    expr: { ref: "foo.id" }

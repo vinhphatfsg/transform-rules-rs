@@ -1,0 +1,4 @@
+[
+  { "code": "ForwardOutReference", "path": "mappings[0].expr.args[0]" },
+  { "code": "ForwardOutReference", "path": "mappings[0].expr.args[2]" }
+]
