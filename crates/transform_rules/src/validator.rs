@@ -161,6 +161,12 @@ fn validate_mappings(rule: &RuleFile, ctx: &mut ValidationCtx<'_>) {
             validate_expr(expr, &expr_path, &produced_targets, ctx);
         }
 
+        if let Some(when) = &mapping.when {
+            let when_path = format!("{}.when", base);
+            validate_expr(when, &when_path, &produced_targets, ctx);
+            validate_when_expr(when, &when_path, ctx);
+        }
+
         produced_targets.insert(target_tokens);
     }
 }
@@ -225,6 +231,58 @@ fn validate_expr(
         Expr::Ref(expr_ref) => validate_ref(expr_ref, base_path, produced_targets, ctx),
         Expr::Op(expr_op) => validate_op(expr_op, base_path, produced_targets, ctx),
         Expr::Literal(_) => {}
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BoolExprKind {
+    Bool,
+    Maybe,
+    NotBool,
+}
+
+fn validate_when_expr(expr: &Expr, base_path: &str, ctx: &mut ValidationCtx<'_>) {
+    if matches!(bool_expr_kind(expr), BoolExprKind::NotBool) {
+        ctx.push(
+            ErrorCode::InvalidWhenType,
+            "when must evaluate to boolean",
+            base_path,
+        );
+    }
+}
+
+fn bool_expr_kind(expr: &Expr) -> BoolExprKind {
+    match expr {
+        Expr::Literal(value) => {
+            if value.is_boolean() {
+                BoolExprKind::Bool
+            } else {
+                BoolExprKind::NotBool
+            }
+        }
+        Expr::Ref(_) => BoolExprKind::Maybe,
+        Expr::Op(expr_op) => match expr_op.op.as_str() {
+            "concat" | "to_string" | "trim" | "lowercase" | "uppercase" | "lookup"
+            | "lookup_first" => BoolExprKind::NotBool,
+            "and" | "or" | "not" => BoolExprKind::Bool,
+            "==" | "!=" | "<" | "<=" | ">" | ">=" | "~=" => BoolExprKind::Bool,
+            "coalesce" => {
+                let mut saw_maybe = false;
+                for arg in &expr_op.args {
+                    match bool_expr_kind(arg) {
+                        BoolExprKind::Bool => {}
+                        BoolExprKind::Maybe => saw_maybe = true,
+                        BoolExprKind::NotBool => return BoolExprKind::NotBool,
+                    }
+                }
+                if saw_maybe {
+                    BoolExprKind::Maybe
+                } else {
+                    BoolExprKind::Bool
+                }
+            }
+            _ => BoolExprKind::Maybe,
+        },
     }
 }
 
@@ -318,6 +376,33 @@ fn validate_op(
         "lookup" | "lookup_first" => {
             validate_lookup_args(expr_op, base_path, ctx);
         }
+        "and" | "or" => {
+            if expr_op.args.len() < 2 {
+                ctx.push(
+                    ErrorCode::InvalidArgs,
+                    "expr.args must contain at least two items",
+                    format!("{}.args", base_path),
+                );
+            }
+        }
+        "not" => {
+            if expr_op.args.len() != 1 {
+                ctx.push(
+                    ErrorCode::InvalidArgs,
+                    "expr.args must contain exactly one item",
+                    format!("{}.args", base_path),
+                );
+            }
+        }
+        "==" | "!=" | "<" | "<=" | ">" | ">=" | "~=" => {
+            if expr_op.args.len() != 2 {
+                ctx.push(
+                    ErrorCode::InvalidArgs,
+                    "expr.args must contain exactly two items",
+                    format!("{}.args", base_path),
+                );
+            }
+        }
         _ => {}
     }
 
@@ -380,6 +465,16 @@ fn is_valid_op(value: &str) -> bool {
             | "uppercase"
             | "lookup"
             | "lookup_first"
+            | "and"
+            | "or"
+            | "not"
+            | "=="
+            | "!="
+            | "<"
+            | "<="
+            | ">"
+            | ">="
+            | "~="
     )
 }
 

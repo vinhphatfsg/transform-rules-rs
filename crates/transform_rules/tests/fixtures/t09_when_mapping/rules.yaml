@@ -1,0 +1,16 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "id"
+    source: "id"
+  - target: "name"
+    source: "name"
+    when: { ref: "input.active" }
+  - target: "tag"
+    value: "active"
+    when: true
+  - target: "note"
+    value: "ignored"
+    when: false

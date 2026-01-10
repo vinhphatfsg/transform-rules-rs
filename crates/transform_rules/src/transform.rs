@@ -1,7 +1,7 @@
 use csv::ReaderBuilder;
 use serde_json::{Map, Value as JsonValue};
 
-use crate::error::{TransformError, TransformErrorKind};
+use crate::error::{TransformError, TransformErrorKind, TransformWarning};
 use crate::model::{Expr, ExprOp, ExprRef, InputFormat, RuleFile};
 use crate::path::{get_path, parse_path, PathToken};
 
@@ -10,15 +10,7 @@ pub fn transform(
     input: &str,
     context: Option<&JsonValue>,
 ) -> Result<JsonValue, TransformError> {
-    let records = parse_input_records(rule, input)?;
-
-    let mut output_records = Vec::with_capacity(records.len());
-    for record in records {
-        let out = apply_mappings(rule, &record, context)?;
-        output_records.push(out);
-    }
-
-    Ok(JsonValue::Array(output_records))
+    transform_with_warnings(rule, input, context).map(|(output, _)| output)
 }
 
 pub fn preflight_validate(
@@ -26,11 +18,37 @@ pub fn preflight_validate(
     input: &str,
     context: Option<&JsonValue>,
 ) -> Result<(), TransformError> {
+    preflight_validate_with_warnings(rule, input, context).map(|_| ())
+}
+
+pub fn transform_with_warnings(
+    rule: &RuleFile,
+    input: &str,
+    context: Option<&JsonValue>,
+) -> Result<(JsonValue, Vec<TransformWarning>), TransformError> {
     let records = parse_input_records(rule, input)?;
+
+    let mut output_records = Vec::with_capacity(records.len());
+    let mut warnings = Vec::new();
     for record in records {
-        let _ = apply_mappings(rule, &record, context)?;
+        let out = apply_mappings(rule, &record, context, &mut warnings)?;
+        output_records.push(out);
     }
-    Ok(())
+
+    Ok((JsonValue::Array(output_records), warnings))
+}
+
+pub fn preflight_validate_with_warnings(
+    rule: &RuleFile,
+    input: &str,
+    context: Option<&JsonValue>,
+) -> Result<Vec<TransformWarning>, TransformError> {
+    let records = parse_input_records(rule, input)?;
+    let mut warnings = Vec::new();
+    for record in records {
+        let _ = apply_mappings(rule, &record, context, &mut warnings)?;
+    }
+    Ok(warnings)
 }
 
 fn parse_input_records(rule: &RuleFile, input: &str) -> Result<Vec<JsonValue>, TransformError> {
@@ -44,10 +62,14 @@ fn apply_mappings(
     rule: &RuleFile,
     record: &JsonValue,
     context: Option<&JsonValue>,
+    warnings: &mut Vec<TransformWarning>,
 ) -> Result<JsonValue, TransformError> {
     let mut out = JsonValue::Object(Map::new());
     for (index, mapping) in rule.mappings.iter().enumerate() {
         let mapping_path = format!("mappings[{}]", index);
+        if !eval_when(mapping, record, context, &out, &mapping_path, warnings) {
+            continue;
+        }
         let value = eval_mapping(mapping, record, context, &out, &mapping_path)?;
         if let Some(value) = value {
             set_path(&mut out, &mapping.target, value, &mapping_path)?;
@@ -219,6 +241,55 @@ fn eval_mapping(
     Ok(Some(value))
 }
 
+fn eval_when(
+    mapping: &crate::model::Mapping,
+    record: &JsonValue,
+    context: Option<&JsonValue>,
+    out: &JsonValue,
+    mapping_path: &str,
+    warnings: &mut Vec<TransformWarning>,
+) -> bool {
+    let expr = match &mapping.when {
+        Some(expr) => expr,
+        None => return true,
+    };
+
+    match eval_when_result(expr, record, context, out, mapping_path) {
+        Ok(flag) => flag,
+        Err(err) => {
+            warnings.push(err.into());
+            false
+        }
+    }
+}
+
+fn eval_when_result(
+    expr: &Expr,
+    record: &JsonValue,
+    context: Option<&JsonValue>,
+    out: &JsonValue,
+    mapping_path: &str,
+) -> Result<bool, TransformError> {
+    let when_path = format!("{}.when", mapping_path);
+    let value = eval_expr(expr, record, context, out, &when_path)?;
+    let value = match value {
+        EvalValue::Missing => JsonValue::Null,
+        EvalValue::Value(value) => value,
+    };
+    match value {
+        JsonValue::Bool(flag) => Ok(flag),
+        _ => Err(when_type_error(&when_path)),
+    }
+}
+
+fn when_type_error(path: &str) -> TransformError {
+    TransformError::new(
+        TransformErrorKind::ExprError,
+        "when must evaluate to boolean",
+    )
+    .with_path(path)
+}
+
 fn resolve_source(
     source: &str,
     record: &JsonValue,
@@ -378,6 +449,12 @@ fn eval_op(
         ),
         "lookup" => eval_lookup(&expr_op.args, record, context, out, base_path, false),
         "lookup_first" => eval_lookup(&expr_op.args, record, context, out, base_path, true),
+        "and" => eval_bool_and_or(&expr_op.args, record, context, out, base_path, true),
+        "or" => eval_bool_and_or(&expr_op.args, record, context, out, base_path, false),
+        "not" => eval_bool_not(&expr_op.args, record, context, out, base_path),
+        "==" | "!=" | "<" | "<=" | ">" | ">=" | "~=" => {
+            eval_compare(expr_op, record, context, out, base_path)
+        }
         _ => Err(TransformError::new(
             TransformErrorKind::ExprError,
             "expr.op is not supported",
@@ -552,6 +629,175 @@ fn eval_lookup(
     }
 }
 
+fn eval_bool_and_or(
+    args: &[Expr],
+    record: &JsonValue,
+    context: Option<&JsonValue>,
+    out: &JsonValue,
+    base_path: &str,
+    is_and: bool,
+) -> Result<EvalValue, TransformError> {
+    if args.len() < 2 {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "expr.args must contain at least two items",
+        )
+        .with_path(format!("{}.args", base_path)));
+    }
+
+    let mut saw_missing = false;
+    for (index, arg) in args.iter().enumerate() {
+        let arg_path = format!("{}.args[{}]", base_path, index);
+        let value = eval_expr(arg, record, context, out, &arg_path)?;
+        match value {
+            EvalValue::Missing => {
+                saw_missing = true;
+                continue;
+            }
+            EvalValue::Value(value) => {
+                let flag = value_as_bool(&value, &arg_path)?;
+                if is_and {
+                    if !flag {
+                        return Ok(EvalValue::Value(JsonValue::Bool(false)));
+                    }
+                } else if flag {
+                    return Ok(EvalValue::Value(JsonValue::Bool(true)));
+                }
+            }
+        }
+    }
+
+    if saw_missing {
+        Ok(EvalValue::Missing)
+    } else {
+        Ok(EvalValue::Value(JsonValue::Bool(is_and)))
+    }
+}
+
+fn eval_bool_not(
+    args: &[Expr],
+    record: &JsonValue,
+    context: Option<&JsonValue>,
+    out: &JsonValue,
+    base_path: &str,
+) -> Result<EvalValue, TransformError> {
+    if args.len() != 1 {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "expr.args must contain exactly one item",
+        )
+        .with_path(format!("{}.args", base_path)));
+    }
+
+    let arg_path = format!("{}.args[0]", base_path);
+    let value = eval_expr(&args[0], record, context, out, &arg_path)?;
+    match value {
+        EvalValue::Missing => Ok(EvalValue::Missing),
+        EvalValue::Value(value) => {
+            let flag = value_as_bool(&value, &arg_path)?;
+            Ok(EvalValue::Value(JsonValue::Bool(!flag)))
+        }
+    }
+}
+
+fn eval_compare(
+    expr_op: &ExprOp,
+    record: &JsonValue,
+    context: Option<&JsonValue>,
+    out: &JsonValue,
+    base_path: &str,
+) -> Result<EvalValue, TransformError> {
+    if expr_op.args.len() != 2 {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "expr.args must contain exactly two items",
+        )
+        .with_path(format!("{}.args", base_path)));
+    }
+
+    let left_path = format!("{}.args[0]", base_path);
+    let right_path = format!("{}.args[1]", base_path);
+    let left = eval_expr_value_or_null(&expr_op.args[0], record, context, out, &left_path)?;
+    let right = eval_expr_value_or_null(&expr_op.args[1], record, context, out, &right_path)?;
+
+    let result = match expr_op.op.as_str() {
+        "==" => compare_eq(&left, &right, &left_path, &right_path)?,
+        "!=" => !compare_eq(&left, &right, &left_path, &right_path)?,
+        "<" => compare_numbers(&left, &right, &left_path, &right_path, |l, r| l < r)?,
+        "<=" => compare_numbers(&left, &right, &left_path, &right_path, |l, r| l <= r)?,
+        ">" => compare_numbers(&left, &right, &left_path, &right_path, |l, r| l > r)?,
+        ">=" => compare_numbers(&left, &right, &left_path, &right_path, |l, r| l >= r)?,
+        "~=" => match_regex(&left, &right, &left_path, &right_path)?,
+        _ => {
+            return Err(TransformError::new(
+                TransformErrorKind::ExprError,
+                "expr.op is not supported",
+            )
+            .with_path(format!("{}.op", base_path)))
+        }
+    };
+
+    Ok(EvalValue::Value(JsonValue::Bool(result)))
+}
+
+fn eval_expr_value_or_null(
+    expr: &Expr,
+    record: &JsonValue,
+    context: Option<&JsonValue>,
+    out: &JsonValue,
+    path: &str,
+) -> Result<JsonValue, TransformError> {
+    match eval_expr(expr, record, context, out, path)? {
+        EvalValue::Missing => Ok(JsonValue::Null),
+        EvalValue::Value(value) => Ok(value),
+    }
+}
+
+fn compare_eq(
+    left: &JsonValue,
+    right: &JsonValue,
+    left_path: &str,
+    right_path: &str,
+) -> Result<bool, TransformError> {
+    if left.is_null() || right.is_null() {
+        return Ok(left.is_null() && right.is_null());
+    }
+
+    let left_value = value_to_string(left, left_path)?;
+    let right_value = value_to_string(right, right_path)?;
+    Ok(left_value == right_value)
+}
+
+fn compare_numbers<F>(
+    left: &JsonValue,
+    right: &JsonValue,
+    left_path: &str,
+    right_path: &str,
+    compare: F,
+) -> Result<bool, TransformError>
+where
+    F: FnOnce(f64, f64) -> bool,
+{
+    let left_value = value_to_number(left, left_path)?;
+    let right_value = value_to_number(right, right_path)?;
+    Ok(compare(left_value, right_value))
+}
+
+fn match_regex(
+    left: &JsonValue,
+    right: &JsonValue,
+    left_path: &str,
+    right_path: &str,
+) -> Result<bool, TransformError> {
+    let value = value_as_string(left, left_path)?;
+    let pattern = value_as_string(right, right_path)?;
+    let regex = regex::Regex::new(&pattern).map_err(|_| {
+        TransformError::new(TransformErrorKind::ExprError, "regex pattern is invalid")
+            .with_path(right_path)
+    })?;
+    Ok(regex.is_match(&value))
+}
+
 fn value_to_string(value: &JsonValue, path: &str) -> Result<String, TransformError> {
     match value {
         JsonValue::String(s) => Ok(s.clone()),
@@ -576,6 +822,28 @@ fn value_as_string(value: &JsonValue, path: &str) -> Result<String, TransformErr
     }
 }
 
+fn value_as_bool(value: &JsonValue, path: &str) -> Result<bool, TransformError> {
+    match value {
+        JsonValue::Bool(flag) => Ok(*flag),
+        _ => Err(expr_type_error("value must be a boolean", path)),
+    }
+}
+
+fn value_to_number(value: &JsonValue, path: &str) -> Result<f64, TransformError> {
+    match value {
+        JsonValue::Number(n) => n
+            .as_f64()
+            .filter(|f| f.is_finite())
+            .ok_or_else(|| expr_type_error("comparison operand must be a number", path)),
+        JsonValue::String(s) => s
+            .parse::<f64>()
+            .ok()
+            .filter(|f| f.is_finite())
+            .ok_or_else(|| expr_type_error("comparison operand must be a number", path)),
+        _ => Err(expr_type_error("comparison operand must be a number", path)),
+    }
+}
+
 fn value_to_string_optional(value: &JsonValue) -> Option<String> {
     match value {
         JsonValue::String(s) => Some(s.clone()),
@@ -583,6 +851,10 @@ fn value_to_string_optional(value: &JsonValue) -> Option<String> {
         JsonValue::Bool(b) => Some(b.to_string()),
         _ => None,
     }
+}
+
+fn expr_type_error(message: &str, path: &str) -> TransformError {
+    TransformError::new(TransformErrorKind::ExprError, message).with_path(path)
 }
 
 fn number_to_string(number: &serde_json::Number) -> String {

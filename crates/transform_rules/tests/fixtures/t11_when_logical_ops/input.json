@@ -1,0 +1,28 @@
+[
+  {
+    "id": 1,
+    "name": "Alice",
+    "code": "AB9",
+    "num": 3,
+    "active": false,
+    "status": "ok",
+    "enabled": true,
+    "must": "ok"
+  },
+  {
+    "name": "Bob",
+    "code": "XY",
+    "num": 8,
+    "active": true,
+    "enabled": false
+  },
+  {
+    "id": 2,
+    "name": "Cara",
+    "code": "ab",
+    "num": 4,
+    "active": false,
+    "status": "ng",
+    "enabled": false
+  }
+]

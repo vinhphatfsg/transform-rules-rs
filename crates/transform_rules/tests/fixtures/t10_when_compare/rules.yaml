@@ -1,0 +1,20 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "low"
+    value: "yes"
+    when:
+      op: "<"
+      args: [ { ref: "input.num" }, 5 ]
+  - target: "numeric_text"
+    value: "yes"
+    when:
+      op: "~="
+      args: [ { ref: "input.text" }, "^\\d+" ]
+  - target: "user_missing"
+    value: "yes"
+    when:
+      op: "=="
+      args: [ { ref: "input.user" }, null ]

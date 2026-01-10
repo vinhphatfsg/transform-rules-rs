@@ -98,9 +98,19 @@ input:
   - `source`: 参照パス（Reference 参照）
   - `value`: リテラル JSON
   - `expr`: 式ツリー
+- `when`（任意）: boolean を返す式。省略時は `true`。`false` または評価エラーの場合は mapping をスキップ（warning）。`source/value/expr` の排他条件には含まれない
 - `type`（任意）: `string|int|float|bool`
 - `required`（任意）: 既定 `false`
 - `default`（任意）: `missing` のときのみ使用するリテラル
+
+例:
+```yaml
+- target: "user.name"
+  source: "name"
+  when:
+    op: "<"
+    args: [ { ref: "input.age" }, 18 ]
+```
 
 ## Expr
 
@@ -140,6 +150,12 @@ expr:
 - `uppercase`: 大文字化
 - `lookup`: 条件一致する要素を検索して配列で返す
 - `lookup_first`: 条件一致する最初の要素のみ返す
+- `and`: boolean AND
+- `or`: boolean OR
+- `not`: boolean NOT
+- `==` / `!=`: 比較
+- `<` / `<=` / `>` / `>=`: 数値比較
+- `~=`: 正規表現マッチ
 
 ### lookup / lookup_first
 - args: `[collection, key_path, match_value, output_path?]`
@@ -151,11 +167,22 @@ expr:
 - `lookup`: 一致した結果の配列を返す（0件の場合は `missing`）
 - `lookup_first`: `lookup` の先頭要素を返す（0件の場合は `missing`）
 
+### 比較 / 正規表現
+- `==` / `!=`: 両辺を文字列化して比較（`null` は `null` 同士のみ一致）
+- `<` / `<=` / `>` / `>=`: 数値比較（数値 or 数値文字列のみ）
+- `~=`: 正規表現マッチ（左辺・パターンともに文字列）
+- 比較系の演算では `missing` は `null` として扱う
+
 ### Expr の評価ルール（補足）
 - `concat`: いずれかの引数が `missing` の場合は `missing`。`null` はエラー。
 - `trim/lowercase/uppercase`: 引数が `missing` の場合は `missing`。`null` または非文字列はエラー。
 - `to_string`: 数値は末尾の不要な `0` と小数点を除去した形式で文字列化（例: `10.0` → `"10"`）。
 - `lookup/lookup_first`: 一致なしは `missing`。`output_path` が見つからない要素はスキップ。
+- `and/or`: 2個以上の boolean を取り、`false`/`true` で短絡評価。`missing` が残る場合は `missing`。`null`/非 boolean はエラー。
+- `not`: boolean を反転。`missing` は `missing`。`null`/非 boolean はエラー。
+- `==` / `!=`: どちらかが `null` の場合は `null` 同士のみ一致。非 string/number/bool はエラー。
+- 数値比較: 非数値/非有限値はエラー。
+- `~=`: 正規表現パターンが不正な場合はエラー。
 
 ## Reference 構文
 
@@ -191,6 +218,9 @@ expr:
 - `type` 変換は式評価後に実行し、失敗はエラー
 - `float` 変換は非有限値（NaN/Infinity）を許可しない
 - `source`/`expr` が `missing` を返した場合も同様に `default/required` の規則を適用する
+- `when` は mapping 処理の冒頭で評価し、`false` または評価エラーなら target を生成しない（評価エラーは warning）
+- `when` の評価では `missing` を `null` とみなし、`== null` は `missing/null` の両方で真になる
+- `when` が `false`/評価エラーでスキップされた場合、`required/default/type` の評価は行わない
 - 出力は常に JSON 配列
 
 ## プリフライト検証
@@ -352,6 +382,7 @@ mappings:
 - `DuplicateTarget`: `mapping.target '<target>' is duplicated`
 - `SourceValueExprExclusive`: `exactly one of source/value/expr is required`
 - `MissingMappingValue`: `mapping must define source, value, or expr`
+- `InvalidWhenType`: `when must evaluate to boolean`
 
 **Reference/Expr**
 - `InvalidRefNamespace`: `ref namespace must be input|context|out`

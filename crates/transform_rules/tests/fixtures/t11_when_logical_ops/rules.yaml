@@ -1,0 +1,42 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "id"
+    source: "id"
+  - target: "label"
+    expr:
+      op: "concat"
+      args:
+        - { ref: "input.name" }
+        - "-"
+        - { ref: "input.code" }
+    when:
+      op: "and"
+      args:
+        - { op: "<", args: [ { ref: "input.num" }, 5 ] }
+        - { op: "~=", args: [ { ref: "input.code" }, "^[A-Z]{2}" ] }
+  - target: "flag"
+    value: true
+    when:
+      op: "or"
+      args:
+        - { ref: "input.active" }
+        - { op: "==", args: [ { ref: "input.status" }, "ok" ] }
+  - target: "not_active"
+    value: true
+    when:
+      op: "not"
+      args: [ { ref: "input.active" } ]
+  - target: "has_id"
+    value: true
+    when:
+      op: "=="
+      args: [ { ref: "out.id" }, null ]
+  - target: "required_skip"
+    source: "must"
+    required: true
+    when:
+      op: "=="
+      args: [ { ref: "input.enabled" }, true ]

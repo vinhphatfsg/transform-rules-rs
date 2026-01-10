@@ -1,0 +1,17 @@
+[
+  {
+    "id": 1,
+    "label": "Alice-AB9",
+    "flag": true,
+    "not_active": true,
+    "required_skip": "ok"
+  },
+  {
+    "flag": true,
+    "has_id": true
+  },
+  {
+    "id": 2,
+    "not_active": true
+  }
+]

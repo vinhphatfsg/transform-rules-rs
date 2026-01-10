@@ -71,6 +71,7 @@ pub struct Mapping {
     pub source: Option<String>,
     pub value: Option<JsonValue>,
     pub expr: Option<Expr>,
+    pub when: Option<Expr>,
     #[serde(rename = "type")]
     pub value_type: Option<String>,
     #[serde(default)]

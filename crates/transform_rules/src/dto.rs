@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::model::RuleFile;
+use serde_json::Value as JsonValue;
+
+use crate::model::{Expr, RuleFile};
 use crate::path::{parse_path, PathToken};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,7 +113,13 @@ fn build_schema(rule: &RuleFile) -> Result<SchemaNode, DtoError> {
             Some(_) => return Err(DtoError::new("unsupported type in mapping")),
             None => FieldType::JsonValue,
         };
-        let optional = !(mapping.required || mapping.value.is_some() || mapping.default.is_some());
+        let conditional = match &mapping.when {
+            None => false,
+            Some(Expr::Literal(JsonValue::Bool(true))) => false,
+            _ => true,
+        };
+        let optional = conditional
+            || !(mapping.required || mapping.value.is_some() || mapping.default.is_some());
 
         insert_field(&mut root, &keys, field_type, optional)?;
     }

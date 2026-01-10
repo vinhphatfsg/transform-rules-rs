@@ -4,8 +4,9 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde_json::json;
 use transform_rules::{
-    generate_dto, parse_rule_file, preflight_validate, transform, validate_rule_file_with_source,
-    DtoLanguage, InputFormat, RuleError, RuleFile, TransformError, TransformErrorKind,
+    generate_dto, parse_rule_file, preflight_validate_with_warnings, transform_with_warnings,
+    validate_rule_file_with_source, DtoLanguage, InputFormat, RuleError, RuleFile, TransformError,
+    TransformErrorKind, TransformWarning,
 };
 
 #[derive(Parser)]
@@ -144,10 +145,15 @@ fn run_preflight(args: PreflightArgs) -> i32 {
         Err(code) => return code,
     };
 
-    if let Err(err) = preflight_validate(&rule, &input, context_value.as_ref()) {
-        emit_transform_error(&err, args.error_format);
-        return 3;
-    }
+    let warnings = match preflight_validate_with_warnings(&rule, &input, context_value.as_ref()) {
+        Ok(warnings) => warnings,
+        Err(err) => {
+            emit_transform_error(&err, args.error_format);
+            return 3;
+        }
+    };
+
+    emit_transform_warnings(&warnings, args.error_format);
 
     0
 }
@@ -177,8 +183,9 @@ fn run_transform(args: TransformArgs) -> i32 {
         Err(code) => return code,
     };
 
-    let output = match transform(&rule, &input, context_value.as_ref()) {
-        Ok(value) => value,
+    let (output, warnings) = match transform_with_warnings(&rule, &input, context_value.as_ref())
+    {
+        Ok(result) => result,
         Err(err) => {
             emit_transform_error(&err, args.error_format);
             return 3;
@@ -192,6 +199,8 @@ fn run_transform(args: TransformArgs) -> i32 {
             return 1;
         }
     };
+
+    emit_transform_warnings(&warnings, args.error_format);
 
     if let Some(path) = args.output {
         if let Some(parent) = path.parent() {
@@ -387,6 +396,45 @@ fn emit_transform_error(err: &TransformError, format: ErrorFormat) {
             eprintln!("{}", serde_json::to_string(&vec![value]).unwrap_or_default());
         }
     }
+}
+
+fn emit_transform_warnings(warnings: &[TransformWarning], format: ErrorFormat) {
+    if warnings.is_empty() {
+        return;
+    }
+
+    match format {
+        ErrorFormat::Text => {
+            for warning in warnings {
+                let mut parts = Vec::new();
+                parts.push(format!("W {}", transform_kind_to_str(&warning.kind)));
+                if let Some(path) = &warning.path {
+                    parts.push(format!("path={}", path));
+                }
+                parts.push(format!("msg=\"{}\"", warning.message));
+                eprintln!("{}", parts.join(" "));
+            }
+        }
+        ErrorFormat::Json => {
+            let values: Vec<_> = warnings
+                .iter()
+                .map(|warning| transform_warning_json(warning))
+                .collect();
+            eprintln!("{}", serde_json::to_string(&values).unwrap_or_default());
+        }
+    }
+}
+
+fn transform_warning_json(warning: &TransformWarning) -> serde_json::Value {
+    let mut value = json!({
+        "type": "warning",
+        "kind": transform_kind_to_str(&warning.kind),
+        "message": warning.message,
+    });
+    if let Some(path) = &warning.path {
+        value["path"] = json!(path);
+    }
+    value
 }
 
 fn transform_kind_to_str(kind: &TransformErrorKind) -> &'static str {

@@ -69,6 +69,9 @@ fn valid_rules_should_pass_validation() {
         "t06_lookup_context",
         "t07_array_index_paths",
         "t08_escaped_keys",
+        "t09_when_mapping",
+        "t10_when_compare",
+        "t11_when_logical_ops",
     ];
 
     for case in cases {
@@ -91,6 +94,7 @@ fn invalid_rules_should_match_expected_errors() {
         "v06_invalid_delimiter_length",
         "v07_invalid_lookup_args",
         "v08_invalid_path",
+        "v09_invalid_when_type",
     ];
 
     for case in cases {

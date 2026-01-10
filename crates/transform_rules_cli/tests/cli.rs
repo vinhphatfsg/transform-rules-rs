@@ -154,6 +154,32 @@ fn transform_writes_output_file() {
 }
 
 #[test]
+fn transform_emits_warnings_json() {
+    let base = fixtures_dir().join("t10_when_compare");
+    let rules = base.join("rules.yaml");
+    let input = base.join("input.json");
+
+    let mut cmd = cargo_bin_cmd!("transform-rules");
+    let output = cmd
+        .arg("transform")
+        .arg("-r")
+        .arg(rules)
+        .arg("-i")
+        .arg(input)
+        .arg("-e")
+        .arg("json")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&stderr)
+        .unwrap_or_else(|_| panic!("invalid json stderr: {}", stderr));
+    assert_eq!(value[0]["type"], "warning");
+    assert_eq!(value[0]["kind"], "ExprError");
+}
+
+#[test]
 fn transform_validate_flag_reports_validation_error() {
     let rules = fixtures_dir()
         .join("v01_missing_mapping_value")

@@ -141,6 +141,39 @@ fn t08_escaped_keys() {
     assert_eq!(output, expected);
 }
 
+#[test]
+fn t09_when_mapping() {
+    let base = fixtures_dir().join("t09_when_mapping");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_json(&base.join("expected.json"));
+    let output = transform(&rule, &input, None).expect("transform failed");
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn t10_when_compare() {
+    let base = fixtures_dir().join("t10_when_compare");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_json(&base.join("expected.json"));
+    let output = transform(&rule, &input, None).expect("transform failed");
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn t11_when_logical_ops() {
+    let base = fixtures_dir().join("t11_when_logical_ops");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_json(&base.join("expected.json"));
+    let output = transform(&rule, &input, None).expect("transform failed");
+    assert_eq!(output, expected);
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct ExpectedTransformError {
     kind: String,

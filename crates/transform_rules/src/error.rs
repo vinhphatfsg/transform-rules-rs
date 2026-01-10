@@ -12,6 +12,7 @@ pub enum ErrorCode {
     DuplicateTarget,
     SourceValueExprExclusive,
     MissingMappingValue,
+    InvalidWhenType,
 
     InvalidRefNamespace,
     ForwardOutReference,
@@ -37,6 +38,7 @@ impl ErrorCode {
             ErrorCode::DuplicateTarget => "DuplicateTarget",
             ErrorCode::SourceValueExprExclusive => "SourceValueExprExclusive",
             ErrorCode::MissingMappingValue => "MissingMappingValue",
+            ErrorCode::InvalidWhenType => "InvalidWhenType",
             ErrorCode::InvalidRefNamespace => "InvalidRefNamespace",
             ErrorCode::ForwardOutReference => "ForwardOutReference",
             ErrorCode::UnknownOp => "UnknownOp",
@@ -97,6 +99,28 @@ pub enum TransformErrorKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransformWarning {
+    pub kind: TransformErrorKind,
+    pub message: String,
+    pub path: Option<String>,
+}
+
+impl TransformWarning {
+    pub fn new(kind: TransformErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+            path: None,
+        }
+    }
+
+    pub fn with_path(mut self, path: impl Into<String>) -> Self {
+        self.path = Some(path.into());
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransformError {
     pub kind: TransformErrorKind,
     pub message: String,
@@ -129,6 +153,16 @@ impl std::fmt::Display for TransformError {
 }
 
 impl std::error::Error for TransformError {}
+
+impl From<TransformError> for TransformWarning {
+    fn from(err: TransformError) -> Self {
+        let mut warning = TransformWarning::new(err.kind, err.message);
+        if let Some(path) = err.path {
+            warning = warning.with_path(path);
+        }
+        warning
+    }
+}
 
 impl From<csv::Error> for TransformError {
     fn from(err: csv::Error) -> Self {
