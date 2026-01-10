@@ -43,6 +43,16 @@ crates/transform_rules/tests/fixtures/
     input.json
     expected.json
 
+  dto01_basic/
+    rules.yaml
+    expected_rust.rs
+    expected_typescript.ts
+    expected_python.py
+    expected_go.go
+    expected_java.java
+    expected_kotlin.kt
+    expected_swift.swift
+
   r01_float_non_finite/
     rules.yaml
     input.json
@@ -691,3 +701,10 @@ mappings:
   { "code": "InvalidPath", "path": "mappings[0].target" }
 ]
 ```
+
+## DTO生成ケース
+
+### dto01_basic
+
+`rules.yaml` を入力に各言語のDTO出力を比較する。
+期待値は `expected_<lang>.<ext>` を使用する。
