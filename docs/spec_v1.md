@@ -115,6 +115,17 @@ expr:
     - { ref: "out.price" }
 ```
 
+lookup の例:
+```yaml
+expr:
+  op: "lookup_first"
+  args:
+    - { ref: "context.users" }
+    - "id"
+    - { ref: "input.user_id" }
+    - "name"
+```
+
 対応形式:
 - リテラル: string/number/bool/null
 - 参照: `{ ref: "input.user_id" }`
@@ -127,11 +138,24 @@ expr:
 - `trim`: 前後空白を除去
 - `lowercase`: 小文字化
 - `uppercase`: 大文字化
+- `lookup`: 条件一致する要素を検索して配列で返す
+- `lookup_first`: 条件一致する最初の要素のみ返す
+
+### lookup / lookup_first
+- args: `[collection, key_path, match_value, output_path?]`
+- `collection`: 配列を返す Expr（例: `{ ref: "context.users" }`）
+- `key_path`: 文字列リテラル（ドットパス。例: `"id"` / `"meta.code"`）
+- `match_value`: Expr
+- `output_path`（任意）: 文字列リテラル（ドットパス。省略時は一致したオブジェクトを返す）
+- 一致判定は「両方を文字列化して比較」（CSV 互換のため）
+- `lookup`: 一致した結果の配列を返す（0件の場合は `missing`）
+- `lookup_first`: `lookup` の先頭要素を返す（0件の場合は `missing`）
 
 ### Expr の評価ルール（補足）
 - `concat`: いずれかの引数が `missing` の場合は `missing`。`null` はエラー。
 - `trim/lowercase/uppercase`: 引数が `missing` の場合は `missing`。`null` または非文字列はエラー。
 - `to_string`: 数値は末尾の不要な `0` と小数点を除去した形式で文字列化（例: `10.0` → `"10"`）。
+- `lookup/lookup_first`: 一致なしは `missing`。`output_path` が見つからない要素はスキップ。
 
 ## Reference 構文
 
@@ -173,6 +197,7 @@ expr:
 - `ref` の namespace が `input|context|out` 以外
 - `out.*` が前方参照になっている
 - `op` が未知、または `args` が欠落/不正
+- `lookup/lookup_first` の args が 3〜4 でない、または `key_path/output_path` が文字列リテラルでない
 
 ## 例
 
@@ -330,7 +355,7 @@ mappings:
 - 入力: `--rules <PATH>`, `--input <PATH>`
 - 任意: `--format <csv|json>`（ルール内の `input.format` を上書き）
 - 任意: `--context <PATH>`（JSON）
-- 任意: `--output <PATH>`（指定時はファイルへ出力。未指定は標準出力）
+- 任意: `--output <PATH>`（指定時はファイルへ出力。未指定は標準出力。親ディレクトリは自動生成）
 - 任意: `--validate`（変換前にバリデーションを実行。未指定なら省略）
 
 ### 共通オプション
@@ -338,6 +363,7 @@ mappings:
 - `--error-format <text|json>`（任意）
   - `text`（既定）: 1行1エラーのテキスト形式
   - `json`: JSON 配列で出力
+- 短縮オプション: `-r/-i/-f/-c/-o/-v/-e`
 
 ### 終了コード
 

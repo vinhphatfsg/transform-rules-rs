@@ -223,6 +223,22 @@ fn validate_op(
         );
     }
 
+    match expr_op.op.as_str() {
+        "trim" | "lowercase" | "uppercase" | "to_string" => {
+            if expr_op.args.len() != 1 {
+                ctx.push(
+                    ErrorCode::InvalidArgs,
+                    "expr.args must contain exactly one item",
+                    format!("{}.args", base_path),
+                );
+            }
+        }
+        "lookup" | "lookup_first" => {
+            validate_lookup_args(expr_op, base_path, ctx);
+        }
+        _ => {}
+    }
+
     for (index, arg) in expr_op.args.iter().enumerate() {
         let arg_path = format!("{}.args[{}]", base_path, index);
         validate_expr(arg, &arg_path, produced_targets, ctx);
@@ -260,7 +276,48 @@ fn is_valid_op(value: &str) -> bool {
             | "trim"
             | "lowercase"
             | "uppercase"
+            | "lookup"
+            | "lookup_first"
     )
+}
+
+fn validate_lookup_args(expr_op: &ExprOp, base_path: &str, ctx: &mut ValidationCtx<'_>) {
+    let len = expr_op.args.len();
+    if !(3..=4).contains(&len) {
+        ctx.push(
+            ErrorCode::InvalidArgs,
+            "lookup args must be [collection, key_path, match_value, output_path?]",
+            format!("{}.args", base_path),
+        );
+        return;
+    }
+
+    let key_path = literal_string(&expr_op.args[1]);
+    if key_path.is_none() || key_path == Some("") {
+        ctx.push(
+            ErrorCode::InvalidArgs,
+            "lookup key_path must be a non-empty string literal",
+            format!("{}.args[1]", base_path),
+        );
+    }
+
+    if len == 4 {
+        let output_path = literal_string(&expr_op.args[3]);
+        if output_path.is_none() || output_path == Some("") {
+            ctx.push(
+                ErrorCode::InvalidArgs,
+                "lookup output_path must be a non-empty string literal",
+                format!("{}.args[3]", base_path),
+            );
+        }
+    }
+}
+
+fn literal_string(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Literal(value) => value.as_str(),
+        _ => None,
+    }
 }
 
 struct ValidationCtx<'a> {

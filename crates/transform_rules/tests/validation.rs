@@ -66,6 +66,7 @@ fn valid_rules_should_pass_validation() {
         "t03_json_out_context",
         "t04_json_root_coalesce_default",
         "t05_expr_transforms",
+        "t06_lookup_context",
     ];
 
     for case in cases {
@@ -86,6 +87,7 @@ fn invalid_rules_should_match_expected_errors() {
         "v04_forward_out_reference",
         "v05_unknown_op",
         "v06_invalid_delimiter_length",
+        "v07_invalid_lookup_args",
     ];
 
     for case in cases {

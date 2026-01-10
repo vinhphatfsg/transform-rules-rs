@@ -1,0 +1,12 @@
+{
+  "users": [
+    { "id": 10, "name": "Alice", "role": "admin" },
+    { "id": 10, "name": "Alicia", "role": "guest" },
+    { "id": 2, "name": null, "role": "member" }
+  ],
+  "tags": [
+    { "id": "p1", "value": "hot" },
+    { "id": "p1", "value": "sale" },
+    { "id": "p2", "value": "new" }
+  ]
+}
