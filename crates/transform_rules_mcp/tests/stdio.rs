@@ -84,7 +84,10 @@ fn initialize_and_list_tools() {
     let tools = response["result"]["tools"]
         .as_array()
         .expect("tools array");
-    assert!(tools.iter().any(|tool| tool["name"] == "transform"));
+    let expected = ["transform", "validate_rules", "generate_dto", "list_ops", "analyze_input"];
+    for name in expected {
+        assert!(tools.iter().any(|tool| tool["name"] == name));
+    }
 
     server.shutdown();
 }
@@ -293,6 +296,185 @@ mappings:
             { "name": "Bob", "age": "25" }
         ])
     );
+
+    server.shutdown();
+}
+
+#[test]
+fn validate_rules_success() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let rules_text = r#"version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "id"
+    source: "id"
+"#;
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 8,
+        "method": "tools/call",
+        "params": {
+            "name": "validate_rules",
+            "arguments": {
+                "rules_text": rules_text
+            }
+        }
+    });
+
+    let response = server.send(&request);
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("result text");
+    assert_eq!(text, "ok");
+
+    server.shutdown();
+}
+
+#[test]
+fn validate_rules_failure() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let rules_text = r#"version: 1
+input:
+  format: csv
+mappings: []
+"#;
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "tools/call",
+        "params": {
+            "name": "validate_rules",
+            "arguments": {
+                "rules_text": rules_text
+            }
+        }
+    });
+
+    let response = server.send(&request);
+    assert_eq!(response["result"]["isError"], true);
+    assert!(response["result"]["meta"]["errors"].is_array());
+
+    server.shutdown();
+}
+
+#[test]
+fn generate_dto_typescript() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let rules_text = r#"version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "id"
+    source: "id"
+"#;
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "tools/call",
+        "params": {
+            "name": "generate_dto",
+            "arguments": {
+                "rules_text": rules_text,
+                "language": "typescript"
+            }
+        }
+    });
+
+    let response = server.send(&request);
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("dto text");
+    assert!(text.contains("export interface"));
+
+    server.shutdown();
+}
+
+#[test]
+fn list_ops_success() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 11,
+        "method": "tools/call",
+        "params": {
+            "name": "list_ops",
+            "arguments": {}
+        }
+    });
+
+    let response = server.send(&request);
+    assert!(response["result"]["meta"]["ops"]["type_casts"].is_array());
+
+    server.shutdown();
+}
+
+#[test]
+fn analyze_input_json_success() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 12,
+        "method": "tools/call",
+        "params": {
+            "name": "analyze_input",
+            "arguments": {
+                "input_json": {
+                    "id": 1,
+                    "name": "Ada"
+                }
+            }
+        }
+    });
+
+    let response = server.send(&request);
+    let paths = response["result"]["meta"]["paths"]
+        .as_array()
+        .expect("paths array");
+    assert!(paths.iter().any(|item| item["path"] == "id"));
+    assert!(paths.iter().any(|item| item["path"] == "name"));
+
+    server.shutdown();
+}
+
+#[test]
+fn analyze_input_csv_success() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 13,
+        "method": "tools/call",
+        "params": {
+            "name": "analyze_input",
+            "arguments": {
+                "input_text": "id,name\n1,Ada\n2,Bob\n",
+                "format": "csv"
+            }
+        }
+    });
+
+    let response = server.send(&request);
+    let paths = response["result"]["meta"]["paths"]
+        .as_array()
+        .expect("paths array");
+    assert!(paths.iter().any(|item| item["path"] == "id"));
 
     server.shutdown();
 }

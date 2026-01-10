@@ -1,10 +1,13 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 
+use csv::ReaderBuilder;
 use serde_json::{json, Map, Value};
 use transform_rules::{
-    parse_rule_file, transform_stream, transform_with_warnings, validate_rule_file_with_source,
-    InputFormat, RuleError, RuleFile, TransformError, TransformErrorKind, TransformWarning,
+    generate_dto, parse_rule_file, transform_stream, transform_with_warnings,
+    validate_rule_file_with_source, DtoLanguage, InputFormat, RuleError, RuleFile, TransformError,
+    TransformErrorKind, TransformWarning,
 };
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
@@ -184,13 +187,33 @@ fn tools_list_result() -> Value {
             {
                 "name": "transform",
                 "description": "Transform CSV/JSON input with a YAML rule file.",
-                "inputSchema": tool_input_schema()
+                "inputSchema": transform_input_schema()
+            },
+            {
+                "name": "validate_rules",
+                "description": "Validate a YAML rule file.",
+                "inputSchema": validate_rules_input_schema()
+            },
+            {
+                "name": "generate_dto",
+                "description": "Generate DTO definitions from a YAML rule file.",
+                "inputSchema": generate_dto_input_schema()
+            },
+            {
+                "name": "list_ops",
+                "description": "List supported expression ops, comparisons, and type casts.",
+                "inputSchema": list_ops_input_schema()
+            },
+            {
+                "name": "analyze_input",
+                "description": "Analyze input data and summarize field paths and types.",
+                "inputSchema": analyze_input_input_schema()
             }
         ]
     })
 }
 
-fn tool_input_schema() -> Value {
+fn transform_input_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
@@ -319,6 +342,162 @@ fn tool_input_schema() -> Value {
     })
 }
 
+fn validate_rules_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "rules_path": {
+                "type": "string",
+                "description": "Path to the YAML rules file. Mutually exclusive with rules_text.",
+                "examples": ["rules.yaml"]
+            },
+            "rules_text": {
+                "type": "string",
+                "description": "Inline YAML rules content. Mutually exclusive with rules_path.",
+                "examples": ["version: 1\ninput:\n  format: json\n  json: {}\nmappings:\n  - target: \"id\"\n    source: \"id\""]
+            }
+        },
+        "allOf": [
+            {
+                "oneOf": [
+                    {
+                        "required": ["rules_path"],
+                        "not": { "required": ["rules_text"] }
+                    },
+                    {
+                        "required": ["rules_text"],
+                        "not": { "required": ["rules_path"] }
+                    }
+                ]
+            }
+        ]
+    })
+}
+
+fn generate_dto_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "rules_path": {
+                "type": "string",
+                "description": "Path to the YAML rules file. Mutually exclusive with rules_text.",
+                "examples": ["rules.yaml"]
+            },
+            "rules_text": {
+                "type": "string",
+                "description": "Inline YAML rules content. Mutually exclusive with rules_path.",
+                "examples": ["version: 1\ninput:\n  format: json\n  json: {}\nmappings:\n  - target: \"id\"\n    source: \"id\""]
+            },
+            "language": {
+                "type": "string",
+                "enum": ["rust", "typescript", "python", "go", "java", "kotlin", "swift"],
+                "description": "DTO output language.",
+                "examples": ["typescript"]
+            },
+            "name": {
+                "type": "string",
+                "description": "Optional DTO root type name.",
+                "examples": ["Record"]
+            }
+        },
+        "required": ["language"],
+        "allOf": [
+            {
+                "oneOf": [
+                    {
+                        "required": ["rules_path"],
+                        "not": { "required": ["rules_text"] }
+                    },
+                    {
+                        "required": ["rules_text"],
+                        "not": { "required": ["rules_path"] }
+                    }
+                ]
+            }
+        ]
+    })
+}
+
+fn list_ops_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {}
+    })
+}
+
+fn analyze_input_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "input_path": {
+                "type": "string",
+                "description": "Path to the input CSV/JSON file. Mutually exclusive with input_text and input_json.",
+                "examples": ["input.json"]
+            },
+            "input_text": {
+                "type": "string",
+                "description": "Inline input text (CSV or JSON). Mutually exclusive with input_path and input_json.",
+                "examples": ["{\"items\":[{\"id\":1}]}"]
+            },
+            "input_json": {
+                "type": ["object", "array"],
+                "description": "Inline input JSON value. Mutually exclusive with input_path and input_text.",
+                "examples": [[{"id": 1}]]
+            },
+            "format": {
+                "type": "string",
+                "enum": ["csv", "json"],
+                "description": "Input format when input_text/input_path is used.",
+                "examples": ["json"]
+            },
+            "records_path": {
+                "type": "string",
+                "description": "Optional records path for JSON inputs.",
+                "examples": ["items"]
+            },
+            "max_paths": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Maximum number of unique paths to include in the response.",
+                "examples": [200]
+            }
+        },
+        "allOf": [
+            {
+                "oneOf": [
+                    {
+                        "required": ["input_path"],
+                        "not": {
+                            "anyOf": [
+                                { "required": ["input_text"] },
+                                { "required": ["input_json"] }
+                            ]
+                        }
+                    },
+                    {
+                        "required": ["input_text"],
+                        "not": {
+                            "anyOf": [
+                                { "required": ["input_path"] },
+                                { "required": ["input_json"] }
+                            ]
+                        }
+                    },
+                    {
+                        "required": ["input_json"],
+                        "not": {
+                            "anyOf": [
+                                { "required": ["input_path"] },
+                                { "required": ["input_text"] }
+                            ]
+                        }
+                    }
+                ]
+            }
+        ]
+    })
+}
+
 enum CallError {
     InvalidParams(String),
     Tool {
@@ -344,6 +523,10 @@ fn handle_tools_call(params: &Value) -> Result<Value, CallError> {
 
     match name {
         "transform" => run_transform_tool(args),
+        "validate_rules" => run_validate_rules_tool(args),
+        "generate_dto" => run_generate_dto_tool(args),
+        "list_ops" => run_list_ops_tool(),
+        "analyze_input" => run_analyze_input_tool(args),
         _ => Ok(tool_error_result(&format!("unknown tool: {}", name), None)),
     }
 }
@@ -411,41 +594,16 @@ fn run_transform_tool(args: &Map<String, Value>) -> Result<Value, CallError> {
             "format must be json when input_json is provided".to_string(),
         ));
     }
+    if format
+        .as_deref()
+        .is_some_and(|value| !value.eq_ignore_ascii_case("csv") && !value.eq_ignore_ascii_case("json"))
+    {
+        return Err(CallError::InvalidParams(
+            "format must be csv or json".to_string(),
+        ));
+    }
 
-    let (mut rule, yaml) = match (rules_path.as_deref(), rules_text.as_deref()) {
-        (Some(path), None) => {
-            let yaml = fs::read_to_string(path).map_err(|err| {
-                let message = format!("failed to read rules: {}", err);
-                CallError::Tool {
-                    message: message.clone(),
-                    errors: Some(vec![io_error_json(&message, Some(path))]),
-                }
-            })?;
-            let rule = parse_rule_file(&yaml).map_err(|err| {
-                let message = format!("failed to parse rules: {}", err);
-                CallError::Tool {
-                    message: message.clone(),
-                    errors: Some(vec![parse_error_json(&message, Some(path))]),
-                }
-            })?;
-            (rule, yaml)
-        }
-        (None, Some(text)) => {
-            let rule = parse_rule_file(text).map_err(|err| {
-                let message = format!("failed to parse rules: {}", err);
-                CallError::Tool {
-                    message: message.clone(),
-                    errors: Some(vec![parse_error_json(&message, None)]),
-                }
-            })?;
-            (rule, text.to_string())
-        }
-        _ => {
-            return Err(CallError::InvalidParams(
-                "rules_path or rules_text is required".to_string(),
-            ))
-        }
-    };
+    let (mut rule, yaml) = load_rule_from_source(rules_path.as_deref(), rules_text.as_deref())?;
 
     let input = match (input_path.as_deref(), input_text.as_deref(), input_json.as_ref()) {
         (Some(path), None, None) => fs::read_to_string(path).map_err(|err| {
@@ -599,6 +757,235 @@ fn run_transform_tool(args: &Map<String, Value>) -> Result<Value, CallError> {
     Ok(result)
 }
 
+fn run_validate_rules_tool(args: &Map<String, Value>) -> Result<Value, CallError> {
+    let rules_path = get_optional_string(args, "rules_path").map_err(CallError::InvalidParams)?;
+    let rules_text = get_optional_string(args, "rules_text").map_err(CallError::InvalidParams)?;
+
+    let rule_source_count = rules_path.is_some() as u8 + rules_text.is_some() as u8;
+    if rule_source_count == 0 {
+        return Err(CallError::InvalidParams(
+            "rules_path or rules_text is required".to_string(),
+        ));
+    }
+    if rule_source_count > 1 {
+        return Err(CallError::InvalidParams(
+            "rules_path and rules_text are mutually exclusive".to_string(),
+        ));
+    }
+
+    let (rule, yaml) = load_rule_from_source(rules_path.as_deref(), rules_text.as_deref())?;
+    match validate_rule_file_with_source(&rule, &yaml) {
+        Ok(_) => Ok(json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": "ok"
+                }
+            ]
+        })),
+        Err(errors) => {
+            let error_values = validation_errors_to_values(&errors);
+            Ok(json!({
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "validation failed"
+                    }
+                ],
+                "isError": true,
+                "meta": {
+                    "errors": error_values
+                }
+            }))
+        }
+    }
+}
+
+fn run_generate_dto_tool(args: &Map<String, Value>) -> Result<Value, CallError> {
+    let rules_path = get_optional_string(args, "rules_path").map_err(CallError::InvalidParams)?;
+    let rules_text = get_optional_string(args, "rules_text").map_err(CallError::InvalidParams)?;
+    let language = get_optional_string(args, "language").map_err(CallError::InvalidParams)?;
+    let name = get_optional_string(args, "name").map_err(CallError::InvalidParams)?;
+
+    let rule_source_count = rules_path.is_some() as u8 + rules_text.is_some() as u8;
+    if rule_source_count == 0 {
+        return Err(CallError::InvalidParams(
+            "rules_path or rules_text is required".to_string(),
+        ));
+    }
+    if rule_source_count > 1 {
+        return Err(CallError::InvalidParams(
+            "rules_path and rules_text are mutually exclusive".to_string(),
+        ));
+    }
+
+    let language = language.ok_or_else(|| {
+        CallError::InvalidParams("language is required".to_string())
+    })?;
+    let language = parse_dto_language(&language)
+        .map_err(CallError::InvalidParams)?;
+
+    let (rule, _) = load_rule_from_source(rules_path.as_deref(), rules_text.as_deref())?;
+    let dto = generate_dto(&rule, language, name.as_deref()).map_err(|err| {
+        let message = format!("failed to generate dto: {}", err);
+        CallError::Tool {
+            message: message.clone(),
+            errors: Some(vec![dto_error_json(&message)]),
+        }
+    })?;
+
+    let mut meta = serde_json::Map::new();
+    meta.insert(
+        "language".to_string(),
+        json!(dto_language_to_str(language)),
+    );
+    if let Some(name) = name {
+        meta.insert("name".to_string(), json!(name));
+    }
+
+    Ok(json!({
+        "content": [
+            {
+                "type": "text",
+                "text": dto
+            }
+        ],
+        "meta": meta
+    }))
+}
+
+fn run_list_ops_tool() -> Result<Value, CallError> {
+    let ops = json!({
+        "expr_ops": [
+            "concat",
+            "coalesce",
+            "to_string",
+            "trim",
+            "lowercase",
+            "uppercase",
+            "lookup",
+            "lookup_first"
+        ],
+        "logical_ops": ["and", "or", "not"],
+        "comparison_ops": ["==", "!=", "<", "<=", ">", ">=", "~="],
+        "type_casts": ["string", "int", "float", "bool"]
+    });
+
+    let text = serde_json::to_string_pretty(&ops)
+        .unwrap_or_else(|_| "{\"error\":\"failed to serialize ops\"}".to_string());
+
+    Ok(json!({
+        "content": [
+            {
+                "type": "text",
+                "text": text
+            }
+        ],
+        "meta": {
+            "ops": ops
+        }
+    }))
+}
+
+fn run_analyze_input_tool(args: &Map<String, Value>) -> Result<Value, CallError> {
+    let input_path = get_optional_string(args, "input_path").map_err(CallError::InvalidParams)?;
+    let input_text = get_optional_string(args, "input_text").map_err(CallError::InvalidParams)?;
+    let input_json = get_optional_json_value(args, "input_json").map_err(CallError::InvalidParams)?;
+    let format = get_optional_string(args, "format").map_err(CallError::InvalidParams)?;
+    let records_path =
+        get_optional_string(args, "records_path").map_err(CallError::InvalidParams)?;
+    let max_paths = get_optional_usize(args, "max_paths").map_err(CallError::InvalidParams)?;
+
+    let input_source_count =
+        input_path.is_some() as u8 + input_text.is_some() as u8 + input_json.is_some() as u8;
+    if input_source_count == 0 {
+        return Err(CallError::InvalidParams(
+            "input_path, input_text, or input_json is required".to_string(),
+        ));
+    }
+    if input_source_count > 1 {
+        return Err(CallError::InvalidParams(
+            "input_path, input_text, and input_json are mutually exclusive".to_string(),
+        ));
+    }
+
+    if input_json.is_some()
+        && format
+            .as_deref()
+            .is_some_and(|value| value.eq_ignore_ascii_case("csv"))
+    {
+        return Err(CallError::InvalidParams(
+            "format must be json when input_json is provided".to_string(),
+        ));
+    }
+
+    let input_text = match (input_path.as_deref(), input_text.as_deref()) {
+        (Some(path), None) => fs::read_to_string(path).map_err(|err| {
+            let message = format!("failed to read input: {}", err);
+            CallError::Tool {
+                message: message.clone(),
+                errors: Some(vec![io_error_json(&message, Some(path))]),
+            }
+        })?,
+        (None, Some(text)) => text.to_string(),
+        (None, None) => String::new(),
+        _ => {
+            return Err(CallError::InvalidParams(
+                "input_path, input_text, or input_json is required".to_string(),
+            ))
+        }
+    };
+
+    let records = if let Some(value) = input_json {
+        json_records_from_value(&value, records_path.as_deref())?
+    } else {
+        match normalize_format(format.as_deref(), &input_text) {
+            InputDataFormat::Json => {
+                let value = serde_json::from_str(&input_text).map_err(|err| {
+                    let message = format!("failed to parse input JSON: {}", err);
+                    CallError::Tool {
+                        message: message.clone(),
+                        errors: Some(vec![parse_error_json(&message, input_path.as_deref())]),
+                    }
+                })?;
+                json_records_from_value(&value, records_path.as_deref())?
+            }
+            InputDataFormat::Csv => parse_csv_records(&input_text).map_err(|err| {
+                let message = format!("failed to parse input CSV: {}", err);
+                CallError::Tool {
+                    message: message.clone(),
+                    errors: Some(vec![parse_error_json(&message, input_path.as_deref())]),
+                }
+            })?,
+        }
+    };
+
+    let stats = analyze_records(&records, max_paths);
+    let paths_json = stats_to_json(&stats);
+
+    let summary = json!({
+        "records": records.len(),
+        "paths": stats.len()
+    });
+
+    let meta = json!({
+        "summary": summary,
+        "paths": paths_json
+    });
+    let text = serde_json::to_string_pretty(&meta)
+        .unwrap_or_else(|_| "{\"error\":\"failed to serialize analysis\"}".to_string());
+
+    Ok(json!({
+        "content": [
+            {
+                "type": "text",
+                "text": text
+            }
+        ],
+        "meta": meta
+    }))
+}
+
 fn tool_error_result(message: &str, errors: Option<Vec<Value>>) -> Value {
     let mut result = json!({
         "content": [
@@ -670,6 +1057,473 @@ fn get_optional_object(args: &Map<String, Value>, key: &str) -> Result<Option<Va
         Some(_) => Err(format!("{} must be an object", key)),
         None => Ok(None),
     }
+}
+
+fn load_rule_from_source(
+    rules_path: Option<&str>,
+    rules_text: Option<&str>,
+) -> Result<(RuleFile, String), CallError> {
+    match (rules_path, rules_text) {
+        (Some(path), None) => {
+            let yaml = fs::read_to_string(path).map_err(|err| {
+                let message = format!("failed to read rules: {}", err);
+                CallError::Tool {
+                    message: message.clone(),
+                    errors: Some(vec![io_error_json(&message, Some(path))]),
+                }
+            })?;
+            let rule = parse_rule_file(&yaml).map_err(|err| {
+                let message = format!("failed to parse rules: {}", err);
+                CallError::Tool {
+                    message: message.clone(),
+                    errors: Some(vec![parse_error_json(&message, Some(path))]),
+                }
+            })?;
+            Ok((rule, yaml))
+        }
+        (None, Some(text)) => {
+            let rule = parse_rule_file(text).map_err(|err| {
+                let message = format!("failed to parse rules: {}", err);
+                CallError::Tool {
+                    message: message.clone(),
+                    errors: Some(vec![parse_error_json(&message, None)]),
+                }
+            })?;
+            Ok((rule, text.to_string()))
+        }
+        _ => Err(CallError::InvalidParams(
+            "rules_path or rules_text is required".to_string(),
+        )),
+    }
+}
+
+fn parse_dto_language(value: &str) -> Result<DtoLanguage, String> {
+    match value.to_lowercase().as_str() {
+        "rust" => Ok(DtoLanguage::Rust),
+        "typescript" => Ok(DtoLanguage::TypeScript),
+        "python" => Ok(DtoLanguage::Python),
+        "go" => Ok(DtoLanguage::Go),
+        "java" => Ok(DtoLanguage::Java),
+        "kotlin" => Ok(DtoLanguage::Kotlin),
+        "swift" => Ok(DtoLanguage::Swift),
+        _ => Err("language must be one of rust, typescript, python, go, java, kotlin, swift"
+            .to_string()),
+    }
+}
+
+fn dto_language_to_str(language: DtoLanguage) -> &'static str {
+    match language {
+        DtoLanguage::Rust => "rust",
+        DtoLanguage::TypeScript => "typescript",
+        DtoLanguage::Python => "python",
+        DtoLanguage::Go => "go",
+        DtoLanguage::Java => "java",
+        DtoLanguage::Kotlin => "kotlin",
+        DtoLanguage::Swift => "swift",
+    }
+}
+
+fn dto_error_json(message: &str) -> Value {
+    json!({
+        "type": "dto",
+        "message": message,
+    })
+}
+
+#[derive(Clone, Copy)]
+enum InputDataFormat {
+    Json,
+    Csv,
+}
+
+fn normalize_format(format: Option<&str>, input_text: &str) -> InputDataFormat {
+    match format.map(|value| value.to_lowercase()) {
+        Some(value) if value == "csv" => InputDataFormat::Csv,
+        Some(value) if value == "json" => InputDataFormat::Json,
+        Some(_) => InputDataFormat::Json,
+        None => match input_text.trim_start().chars().next() {
+            Some('{') | Some('[') => InputDataFormat::Json,
+            _ => InputDataFormat::Csv,
+        },
+    }
+}
+
+fn json_records_from_value(
+    value: &Value,
+    records_path: Option<&str>,
+) -> Result<Vec<Value>, CallError> {
+    let target = if let Some(path) = records_path {
+        let tokens = parse_path_tokens(path).map_err(|message| {
+            CallError::InvalidParams(format!("records_path is invalid: {}", message))
+        })?;
+        get_value_by_tokens(value, &tokens).ok_or_else(|| {
+            CallError::Tool {
+                message: "records_path did not match any value".to_string(),
+                errors: Some(vec![parse_error_json(
+                    "records_path did not match any value",
+                    None,
+                )]),
+            }
+        })?
+    } else {
+        value
+    };
+
+    match target {
+        Value::Array(items) => Ok(items.clone()),
+        Value::Object(_) => Ok(vec![target.clone()]),
+        _ => Err(CallError::Tool {
+            message: "records_path must resolve to an object or array".to_string(),
+            errors: Some(vec![parse_error_json(
+                "records_path must resolve to an object or array",
+                None,
+            )]),
+        }),
+    }
+}
+
+fn parse_csv_records(text: &str) -> Result<Vec<Value>, String> {
+    let mut reader = ReaderBuilder::new()
+        .has_headers(true)
+        .from_reader(text.as_bytes());
+    let headers = reader
+        .headers()
+        .map_err(|err| err.to_string())?
+        .iter()
+        .enumerate()
+        .map(|(index, name)| {
+            let trimmed = name.trim();
+            if trimmed.is_empty() {
+                format!("column_{}", index + 1)
+            } else {
+                trimmed.to_string()
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let mut records = Vec::new();
+    for result in reader.records() {
+        let record = result.map_err(|err| err.to_string())?;
+        let mut obj = Map::new();
+        for (index, value) in record.iter().enumerate() {
+            if let Some(key) = headers.get(index) {
+                obj.insert(key.clone(), csv_cell_to_value(value));
+            }
+        }
+        records.push(Value::Object(obj));
+    }
+    Ok(records)
+}
+
+fn csv_cell_to_value(value: &str) -> Value {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Value::Null;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if lower == "true" {
+        return Value::Bool(true);
+    }
+    if lower == "false" {
+        return Value::Bool(false);
+    }
+    if let Ok(number) = trimmed.parse::<i64>() {
+        return Value::Number(number.into());
+    }
+    if let Ok(number) = trimmed.parse::<f64>() {
+        if let Some(number) = serde_json::Number::from_f64(number) {
+            return Value::Number(number);
+        }
+    }
+    Value::String(trimmed.to_string())
+}
+
+#[derive(Default)]
+struct PathStats {
+    count: usize,
+    type_counts: HashMap<&'static str, usize>,
+    examples: Vec<Value>,
+}
+
+fn analyze_records(records: &[Value], max_paths: Option<usize>) -> HashMap<String, PathStats> {
+    let mut stats = HashMap::new();
+    for record in records {
+        collect_path_stats(record, "", &mut stats, max_paths);
+    }
+    stats
+}
+
+fn collect_path_stats(
+    value: &Value,
+    prefix: &str,
+    stats: &mut HashMap<String, PathStats>,
+    max_paths: Option<usize>,
+) {
+    match value {
+        Value::Object(map) => {
+            if map.is_empty() {
+                record_path_value(stats, prefix, value, max_paths);
+                return;
+            }
+            for (key, child) in map {
+                let next = append_path(prefix, key);
+                collect_path_stats(child, &next, stats, max_paths);
+            }
+        }
+        Value::Array(_) => {
+            record_path_value(stats, prefix, value, max_paths);
+        }
+        _ => record_path_value(stats, prefix, value, max_paths),
+    }
+}
+
+fn record_path_value(
+    stats: &mut HashMap<String, PathStats>,
+    path: &str,
+    value: &Value,
+    max_paths: Option<usize>,
+) {
+    let path = if path.is_empty() {
+        "$".to_string()
+    } else {
+        path.to_string()
+    };
+    if !stats.contains_key(&path) && max_paths.is_some_and(|max| stats.len() >= max) {
+        return;
+    }
+    let entry = stats.entry(path).or_default();
+    entry.count += 1;
+    let type_name = value_type_name(value);
+    *entry.type_counts.entry(type_name).or_insert(0) += 1;
+    if entry.examples.len() < 3 && is_primitive(value) && !entry.examples.contains(value) {
+        entry.examples.push(value.clone());
+    }
+}
+
+fn stats_to_json(stats: &HashMap<String, PathStats>) -> Value {
+    let mut entries: Vec<(&String, &PathStats)> = stats.iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+
+    let mut values = Vec::new();
+    for (path, stat) in entries {
+        let mut types = serde_json::Map::new();
+        let mut type_entries: Vec<_> = stat.type_counts.iter().collect();
+        type_entries.sort_by(|a, b| a.0.cmp(b.0));
+        for (type_name, count) in type_entries {
+            types.insert(type_name.to_string(), json!(count));
+        }
+
+        let mut obj = json!({
+            "path": path,
+            "count": stat.count,
+            "types": types
+        });
+        if !stat.examples.is_empty() {
+            obj["examples"] = Value::Array(stat.examples.clone());
+        }
+        values.push(obj);
+    }
+    Value::Array(values)
+}
+
+fn value_type_name(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "bool",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
+}
+
+fn is_primitive(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_)
+    )
+}
+
+fn append_path(prefix: &str, key: &str) -> String {
+    let needs_quote = key
+        .chars()
+        .any(|ch| ch == '.' || ch == '[' || ch == ']' || ch == '"' || ch == '\'' || ch == '\\');
+    let segment = if needs_quote {
+        let escaped = key.replace('\\', "\\\\").replace('"', "\\\"");
+        format!("[\"{}\"]", escaped)
+    } else {
+        key.to_string()
+    };
+    if prefix.is_empty() {
+        segment
+    } else if segment.starts_with('[') {
+        format!("{}{}", prefix, segment)
+    } else {
+        format!("{}.{}", prefix, segment)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PathToken {
+    Key(String),
+    Index(usize),
+}
+
+fn parse_path_tokens(path: &str) -> Result<Vec<PathToken>, String> {
+    if path.is_empty() {
+        return Err("path is empty".to_string());
+    }
+
+    let chars: Vec<char> = path.chars().collect();
+    let mut tokens = Vec::new();
+    let mut index = 0;
+
+    while index < chars.len() {
+        if chars[index] == '.' {
+            return Err("path segment is empty".to_string());
+        }
+
+        if chars[index] == '[' {
+            let (token, next) = parse_bracket(&chars, index)?;
+            tokens.push(token);
+            index = next;
+        } else {
+            let start = index;
+            while index < chars.len() && chars[index] != '.' && chars[index] != '[' {
+                index += 1;
+            }
+            if start == index {
+                return Err("path segment is empty".to_string());
+            }
+            let key: String = chars[start..index].iter().collect();
+            if key.is_empty() {
+                return Err("path segment is empty".to_string());
+            }
+            tokens.push(PathToken::Key(key));
+        }
+
+        while index < chars.len() && chars[index] == '[' {
+            let (token, next) = parse_bracket(&chars, index)?;
+            tokens.push(token);
+            index = next;
+        }
+
+        if index < chars.len() {
+            if chars[index] == '.' {
+                index += 1;
+                if index == chars.len() {
+                    return Err("path syntax is invalid".to_string());
+                }
+            } else {
+                return Err("path syntax is invalid".to_string());
+            }
+        }
+    }
+
+    Ok(tokens)
+}
+
+fn parse_bracket(chars: &[char], start: usize) -> Result<(PathToken, usize), String> {
+    if chars.get(start) != Some(&'[') {
+        return Err("path syntax is invalid".to_string());
+    }
+    let index = start + 1;
+    if index >= chars.len() {
+        return Err("path syntax is invalid".to_string());
+    }
+
+    match chars[index] {
+        '"' | '\'' => parse_quoted(chars, index),
+        c if c.is_ascii_digit() => parse_index(chars, index),
+        _ => Err("path syntax is invalid".to_string()),
+    }
+}
+
+fn parse_index(chars: &[char], start: usize) -> Result<(PathToken, usize), String> {
+    let mut index = start;
+    let mut value: usize = 0;
+    let mut has_digit = false;
+
+    while index < chars.len() && chars[index].is_ascii_digit() {
+        has_digit = true;
+        value = value
+            .saturating_mul(10)
+            .saturating_add(chars[index].to_digit(10).unwrap_or(0) as usize);
+        index += 1;
+    }
+
+    if !has_digit {
+        return Err("path syntax is invalid".to_string());
+    }
+    if chars.get(index) != Some(&']') {
+        return Err("path syntax is invalid".to_string());
+    }
+    index += 1;
+    Ok((PathToken::Index(value), index))
+}
+
+fn parse_quoted(chars: &[char], start: usize) -> Result<(PathToken, usize), String> {
+    let quote = chars[start];
+    let mut index = start + 1;
+    let mut value = String::new();
+
+    while index < chars.len() {
+        let ch = chars[index];
+        if ch == '\\' {
+            index += 1;
+            if index >= chars.len() {
+                return Err("path escape is invalid".to_string());
+            }
+            let escaped = chars[index];
+            if escaped == '\\' || escaped == quote {
+                value.push(escaped);
+                index += 1;
+                continue;
+            }
+            return Err("path escape is invalid".to_string());
+        }
+
+        if ch == '[' || ch == ']' {
+            return Err("path syntax is invalid".to_string());
+        }
+
+        if ch == quote {
+            index += 1;
+            break;
+        }
+
+        value.push(ch);
+        index += 1;
+    }
+
+    if value.is_empty() {
+        return Err("path segment is empty".to_string());
+    }
+    if chars.get(index - 1) != Some(&quote) {
+        return Err("path syntax is invalid".to_string());
+    }
+    if chars.get(index) != Some(&']') {
+        return Err("path syntax is invalid".to_string());
+    }
+    index += 1;
+    Ok((PathToken::Key(value), index))
+}
+
+fn get_value_by_tokens<'a>(value: &'a Value, tokens: &[PathToken]) -> Option<&'a Value> {
+    let mut current = value;
+    for token in tokens {
+        match token {
+            PathToken::Key(key) => match current {
+                Value::Object(map) => current = map.get(key)?,
+                _ => return None,
+            },
+            PathToken::Index(index) => match current {
+                Value::Array(items) => current = items.get(*index)?,
+                _ => return None,
+            },
+        }
+    }
+    Some(current)
 }
 
 fn apply_format_override(rule: &mut RuleFile, format: Option<&str>) -> Result<(), String> {

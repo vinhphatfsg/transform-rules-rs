@@ -133,6 +133,12 @@ Tool: `transform`
 - Optional: `format` (`csv` or `json`), `ndjson`, `validate`, `output_path`, `max_output_bytes`, `preview_rows`, `return_output_json`
 - Output: text in `content`; `meta` may include `warnings`, `output`, `output_path`, `output_bytes`, `truncated`
 
+Other MCP tools:
+- `validate_rules`: validate YAML rules (`rules_path` or `rules_text`)
+- `generate_dto`: generate DTOs (`rules_path` or `rules_text`, `language`, optional `name`)
+- `list_ops`: list supported ops (no args)
+- `analyze_input`: summarize input fields (`input_path`/`input_text`/`input_json`, optional `format`, `records_path`, `max_paths`)
+
 ## Quick start (CLI)
 
 ### 1) Prepare rules
