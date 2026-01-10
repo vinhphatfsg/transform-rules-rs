@@ -57,6 +57,31 @@ cargo install --path crates/transform_rules_cli
 transform-rules --help
 ```
 
+### MCP server (local, stdio)
+This MCP server runs over stdio and is intended for local use.
+
+Build:
+```
+cargo build -p transform_rules_mcp --release
+```
+
+Claude Desktop (macOS) config example:
+`~/Library/Application Support/Claude/claude_desktop_config.json`
+```json
+{
+  "mcpServers": {
+    "transform-rules": {
+      "command": "/absolute/path/to/transform-rules/target/release/transform-rules-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+Tool: `transform`
+- Required: `rules_path`, `input_path`
+- Optional: `context_path`, `format` (`csv` or `json`), `ndjson`, `validate`, `output_path`
+
 ## Quick start (CLI)
 
 ### 1) Prepare rules
@@ -132,6 +157,23 @@ mappings:
         - "name"
 ```
 
+`input.json`
+```json
+[
+  { "user_id": 10 }
+]
+```
+
+`context.json`
+```json
+{
+  "users": [
+    { "id": 10, "name": "Alice" },
+    { "id": 2, "name": "Bob" }
+  ]
+}
+```
+
 ### when with comparisons and regex
 `rules.yaml`
 ```yaml
@@ -173,23 +215,6 @@ mappings:
   { "user_missing": "yes" },
   { "numeric_text": "yes", "user_missing": "yes" }
 ]
-```
-
-`input.json`
-```json
-[
-  { "user_id": 10 }
-]
-```
-
-`context.json`
-```json
-{
-  "users": [
-    { "id": 10, "name": "Alice" },
-    { "id": 2, "name": "Bob" }
-  ]
-}
 ```
 
 ## CLI options
