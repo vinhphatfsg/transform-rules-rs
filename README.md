@@ -7,7 +7,7 @@ A small Rust library and CLI to transform CSV/JSON data using YAML rules.
 - Static validation for rule files.
 - Expressions (concat/coalesce/trim/lowercase/uppercase/to_string).
 - lookup/lookup_first for array lookups from context.
-- Dot paths support array indices (e.g., items[0].id).
+- Dot paths support array indices (e.g., input.items[0].id).
 - Context injection for external reference data.
 - CLI output to stdout or file.
 - Error format as text or JSON.

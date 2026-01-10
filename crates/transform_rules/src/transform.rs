@@ -646,13 +646,6 @@ fn type_cast_error(type_name: &str, path: &str) -> TransformError {
 }
 
 fn parse_source(source: &str) -> Result<(Namespace, &str), TransformError> {
-    if source.is_empty() {
-        return Err(TransformError::new(
-            TransformErrorKind::InvalidRef,
-            "reference path is empty",
-        ));
-    }
-
     if let Some((prefix, path)) = source.split_once('.') {
         if path.is_empty() {
             return Err(TransformError::new(
@@ -661,17 +654,26 @@ fn parse_source(source: &str) -> Result<(Namespace, &str), TransformError> {
             ));
         }
         let namespace = match prefix {
-            "input" => Some(Namespace::Input),
-            "context" => Some(Namespace::Context),
-            "out" => Some(Namespace::Out),
-            _ => None,
+            "input" => Namespace::Input,
+            "context" => Namespace::Context,
+            "out" => Namespace::Out,
+            _ => {
+                return Err(TransformError::new(
+                    TransformErrorKind::InvalidRef,
+                    "ref namespace must be input|context|out",
+                ))
+            }
         };
-        if let Some(namespace) = namespace {
-            return Ok((namespace, path));
+        Ok((namespace, path))
+    } else {
+        if source.is_empty() {
+            return Err(TransformError::new(
+                TransformErrorKind::InvalidRef,
+                "reference path is empty",
+            ));
         }
+        Ok((Namespace::Input, source))
     }
-
-    Ok((Namespace::Input, source))
 }
 
 fn parse_ref(value: &str) -> Result<(Namespace, &str), TransformError> {

@@ -165,14 +165,16 @@ expr:
 - `out.*`: 既に生成済みの出力
 
 `source` は namespace を省略可能（省略時は `input.*`）。
+ただしドットパス/配列インデックスを使う場合は `input.*` を明示する。
 
 ドットパスは配列インデックスをサポートします（0 始まりの非負整数）。
-例: `items[0].id`, `context.matrix[1][0]`
+例: `input.items[0].id`, `context.matrix[1][0]`
 - 配列以外/範囲外は `missing` 扱い
 - `[` `]` を含むキー名のエスケープは v1 では未対応
 
 例:
 - `source: "id"` は `input.id` を意味する
+- `source: "input.items[0].id"`
 - `source: "context.tenant_id"`
 - `expr: { ref: "out.text" }`
 
