@@ -155,6 +155,7 @@ expr:
 - `default` は `missing` のときのみ適用（`null` には適用しない）
 - `required=true` は `missing` または `null` でエラー
 - `type` 変換は式評価後に実行し、失敗はエラー
+- `float` 変換は非有限値（NaN/Infinity）を許可しない
 - `source`/`expr` が `missing` を返した場合も同様に `default/required` の規則を適用する
 - 出力は常に JSON 配列
 
@@ -302,7 +303,7 @@ mappings:
 
 **Data**
 - `MissingRequired`: `required=true` なのに `missing` または `null`
-- `TypeCastFailed`: `type` 変換に失敗
+- `TypeCastFailed`: `type` 変換に失敗（例: 非有限な `float`）
 
 **Expr**
 - `ExprError`: `expr` の評価失敗（未知 op/不正 args/型不一致など）
@@ -310,6 +311,7 @@ mappings:
 ### 代表的な発生条件
 - `records_path` が配列/オブジェクト以外を指す場合は `InvalidInput`
 - `concat` に `null` が入る、`trim/lowercase/uppercase` に非文字列が入る場合は `ExprError`
+- `float` 変換で `NaN`/`Infinity` が発生する場合は `TypeCastFailed`
 - `target` が `a` と `a.b` のように衝突する場合は `InvalidTarget`
 
 ## CLI 仕様（案）

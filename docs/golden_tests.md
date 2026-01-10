@@ -29,6 +29,11 @@ crates/transform_rules/tests/fixtures/
     input.json
     expected.json
 
+  r01_float_non_finite/
+    rules.yaml
+    input.json
+    expected_error.json
+
   v01_missing_mapping_value/
     rules.yaml
     expected_errors.json
@@ -50,11 +55,12 @@ crates/transform_rules/tests/fixtures/
 ```
 
 `expected_errors.json` は最低限 `code` を含む配列とする。
+`expected_error.json` は最低限 `kind` を含むオブジェクトとする。
 
 例:
 ```json
 [
-  { "code": "SourceValueExprExclusive", "path": "mappings[0]" }
+  { "code": "MissingMappingValue", "path": "mappings[0]" }
 ]
 ```
 
@@ -239,6 +245,37 @@ mappings:
 [
   { "email_norm": "user@example.com", "label": "u-7" }
 ]
+```
+
+## 変換失敗ケース（ランタイム）
+
+### r01_float_non_finite
+
+`rules.yaml`
+```yaml
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "price"
+    source: "price"
+    type: "float"
+```
+
+`input.json`
+```json
+[
+  { "price": "NaN" }
+]
+```
+
+`expected_error.json`
+```json
+{
+  "kind": "TypeCastFailed",
+  "path": "mappings[0].type"
+}
 ```
 
 ## バリデーション失敗ケース
