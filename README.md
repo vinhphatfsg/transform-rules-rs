@@ -28,12 +28,12 @@ Prerequisites: a Rust toolchain (via rustup).
    - Linux (x86_64): `transform-rules-<TAG>-x86_64-unknown-linux-gnu.tar.gz`
    - Windows (x86_64): `transform-rules-<TAG>-x86_64-pc-windows-msvc.zip`
    `<TAG>` is the GitHub release tag (e.g. `v0.1.0`).
-2) Extract the archive and put `transform-rules` on your `PATH`.
+2) Extract the archive. It contains both `transform-rules` (CLI) and `transform-rules-mcp` (MCP stdio server).
 
 macOS/Linux example:
 ```
 tar -xzf transform-rules-<TAG>-x86_64-unknown-linux-gnu.tar.gz
-chmod +x transform-rules
+chmod +x transform-rules transform-rules-mcp
 mkdir -p ~/.local/bin
 mv transform-rules ~/.local/bin/
 ```
@@ -60,7 +60,17 @@ transform-rules --help
 ### MCP server (local, stdio)
 This MCP server runs over stdio and is intended for local use.
 
-Build:
+Download from GitHub Releases (macOS/Linux example):
+```
+TAG=v0.1.0
+TARGET=x86_64-unknown-linux-gnu # set to your OS/arch
+curl -L -o transform-rules-${TAG}-${TARGET}.tar.gz \\
+  https://github.com/VinhPhat-Projects/transform-rules-rs/releases/download/${TAG}/transform-rules-${TAG}-${TARGET}.tar.gz
+tar -xzf transform-rules-${TAG}-${TARGET}.tar.gz
+chmod +x transform-rules-mcp
+```
+
+Build from source:
 ```
 cargo build -p transform_rules_mcp --release
 ```
@@ -71,11 +81,42 @@ Claude Desktop (macOS) config example:
 {
   "mcpServers": {
     "transform-rules": {
-      "command": "/absolute/path/to/transform-rules/target/release/transform-rules-mcp",
+      "command": "/absolute/path/to/transform-rules-mcp",
       "args": []
     }
   }
 }
+```
+
+Tip: If you are in the directory where `transform-rules-mcp` exists, you can create a JSON snippet with an absolute path using `$(pwd)`:
+```
+MCP_BIN="$(pwd)/transform-rules-mcp"
+cat <<EOF > /tmp/transform-rules-mcp.json
+{
+  "mcpServers": {
+    "transform-rules": {
+      "command": "${MCP_BIN}",
+      "args": []
+    }
+  }
+}
+EOF
+```
+Merge the `mcpServers.transform-rules` entry into your Claude config if you already have one.
+
+Windows (PowerShell) snippet using `$PWD`:
+```
+$McpBin = Join-Path $PWD "transform-rules-mcp.exe"
+@"
+{
+  "mcpServers": {
+    "transform-rules": {
+      "command": "$McpBin",
+      "args": []
+    }
+  }
+}
+"@ | Set-Content -Path "$env:TEMP\\transform-rules-mcp.json"
 ```
 
 Tool: `transform`
