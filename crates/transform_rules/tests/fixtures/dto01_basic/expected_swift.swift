@@ -11,6 +11,8 @@ struct Record: Codable {
     let meta: JSONValue?
     let userName: JSONValue?
     let class_: JSONValue?
+    let status: String
+    let source: String
 
     enum CodingKeys: String, CodingKey {
         case userName = "user-name"

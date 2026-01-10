@@ -111,7 +111,7 @@ fn build_schema(rule: &RuleFile) -> Result<SchemaNode, DtoError> {
             Some(_) => return Err(DtoError::new("unsupported type in mapping")),
             None => FieldType::JsonValue,
         };
-        let optional = !mapping.required;
+        let optional = !(mapping.required || mapping.value.is_some() || mapping.default.is_some());
 
         insert_field(&mut root, &keys, field_type, optional)?;
     }

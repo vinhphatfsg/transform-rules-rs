@@ -17,4 +17,6 @@ public class Record {
     public Optional<JsonNode> userName;
     @JsonProperty("class")
     public Optional<JsonNode> class_;
+    public String status;
+    public String source;
 }

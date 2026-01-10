@@ -13,4 +13,6 @@ export interface Record {
   userName?: unknown;
   /** json: "class" */
   class_?: unknown;
+  status: string;
+  source: string;
 }

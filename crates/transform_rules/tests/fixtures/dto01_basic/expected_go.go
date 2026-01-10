@@ -15,4 +15,6 @@ type Record struct {
     Meta *json.RawMessage `json:"meta,omitempty"`
     UserName *json.RawMessage `json:"user-name,omitempty"`
     Class *json.RawMessage `json:"class,omitempty"`
+    Status string `json:"status"`
+    Source string `json:"source"`
 }

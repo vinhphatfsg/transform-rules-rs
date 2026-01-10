@@ -11,6 +11,8 @@ class Record:
     id: str
     user: RecordUser
     active: bool
+    status: str
+    source: str
     price: Optional[float] = None
     meta: Optional[Any] = None
     # json: "user-name"

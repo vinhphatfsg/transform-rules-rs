@@ -21,4 +21,6 @@ pub struct Record {
     pub user_name: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub class: Option<Value>,
+    pub status: String,
+    pub source: String,
 }

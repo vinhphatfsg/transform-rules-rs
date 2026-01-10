@@ -403,7 +403,7 @@ E InvalidRefNamespace path=mappings[0].expr line=7 col=5 msg="ref namespace must
 - 対応言語: Rust / TypeScript / Python / Go / Java / Kotlin / Swift
 - 生成対象: 1レコード分の型のみ（既定の型名 `Record`）
 - `target` のドットパスに応じてネスト構造を生成
-- 型推定: `type` 指定あり → 具体型、`required=false` → Optional/nullable、未指定 → JSON 値型
+- 型推定: `type` 指定あり → 具体型、`required=false` かつ `value/default` が無い場合のみ Optional/nullable、未指定 → JSON 値型
 - 識別子は各言語の命名規則に合わせてサニタイズし、元のキーはリネーム注釈で保持
 - 未指定型の JSON 値型:
   - Rust: `serde_json::Value`

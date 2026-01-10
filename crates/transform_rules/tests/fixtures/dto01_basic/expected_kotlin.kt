@@ -15,5 +15,7 @@ data class Record(
     @JsonProperty("user-name")
     val userName: JsonNode?,
     @JsonProperty("class")
-    val class_: JsonNode?
+    val class_: JsonNode?,
+    val status: String,
+    val source: String
 )
