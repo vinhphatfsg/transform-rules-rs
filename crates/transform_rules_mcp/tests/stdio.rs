@@ -4,6 +4,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 
 use serde_json::{json, Value};
 use tempfile::tempdir;
+use transform_rules::parse_rule_file;
 
 struct McpServer {
     child: Child,
@@ -84,7 +85,14 @@ fn initialize_and_list_tools() {
     let tools = response["result"]["tools"]
         .as_array()
         .expect("tools array");
-    let expected = ["transform", "validate_rules", "generate_dto", "list_ops", "analyze_input"];
+    let expected = [
+        "transform",
+        "validate_rules",
+        "generate_dto",
+        "list_ops",
+        "analyze_input",
+        "generate_rules_from_base",
+    ];
     for name in expected {
         assert!(tools.iter().any(|tool| tool["name"] == name));
     }
@@ -480,13 +488,56 @@ fn analyze_input_csv_success() {
 }
 
 #[test]
+fn generate_rules_from_base_success() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let rules_text = r#"version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "id"
+    source: "old_id"
+  - target: "name"
+    source: "old_name"
+"#;
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 14,
+        "method": "tools/call",
+        "params": {
+            "name": "generate_rules_from_base",
+            "arguments": {
+                "rules_text": rules_text,
+                "input_json": {
+                    "id": 1,
+                    "name": "Ada"
+                }
+            }
+        }
+    });
+
+    let response = server.send(&request);
+    let output_text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("output text");
+    let rule = parse_rule_file(output_text).expect("parse output rules");
+    assert_eq!(rule.mappings[0].source.as_deref(), Some("id"));
+    assert_eq!(rule.mappings[1].source.as_deref(), Some("name"));
+
+    server.shutdown();
+}
+
+#[test]
 fn resources_list_and_read() {
     let mut server = McpServer::start();
     initialize(&mut server);
 
     let list_request = json!({
         "jsonrpc": "2.0",
-        "id": 14,
+        "id": 15,
         "method": "resources/list"
     });
     let list_response = server.send(&list_request);
@@ -497,7 +548,7 @@ fn resources_list_and_read() {
 
     let read_request = json!({
         "jsonrpc": "2.0",
-        "id": 15,
+        "id": 16,
         "method": "resources/read",
         "params": {
             "uri": "transform-rules://docs/rules_spec_en"
@@ -519,7 +570,7 @@ fn prompts_list_and_get() {
 
     let list_request = json!({
         "jsonrpc": "2.0",
-        "id": 16,
+        "id": 17,
         "method": "prompts/list"
     });
     let list_response = server.send(&list_request);
@@ -530,7 +581,7 @@ fn prompts_list_and_get() {
 
     let get_request = json!({
         "jsonrpc": "2.0",
-        "id": 17,
+        "id": 18,
         "method": "prompts/get",
         "params": {
             "name": "explain_errors",

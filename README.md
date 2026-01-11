@@ -138,6 +138,7 @@ Other MCP tools:
 - `generate_dto`: generate DTOs (`rules_path` or `rules_text`, `language`, optional `name`)
 - `list_ops`: list supported ops (no args)
 - `analyze_input`: summarize input fields (`input_path`/`input_text`/`input_json`, optional `format`, `records_path`, `max_paths`)
+- `generate_rules_from_base`: map input data into existing rule targets (`rules_path`/`rules_text`, `input_*`, optional `format`, `records_path`, `max_candidates`)
 
 MCP resources:
 - `transform-rules://docs/rules_spec_en`

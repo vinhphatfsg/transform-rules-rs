@@ -1,13 +1,14 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 
 use csv::ReaderBuilder;
 use serde_json::{json, Map, Value};
+use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use transform_rules::{
     generate_dto, parse_rule_file, transform_stream, transform_with_warnings,
-    validate_rule_file_with_source, DtoLanguage, InputFormat, RuleError, RuleFile, TransformError,
-    TransformErrorKind, TransformWarning,
+    validate_rule_file_with_source, DtoLanguage, Expr, InputFormat, RuleError, RuleFile,
+    TransformError, TransformErrorKind, TransformWarning,
 };
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
@@ -238,6 +239,11 @@ fn tools_list_result() -> Value {
                 "name": "analyze_input",
                 "description": "Analyze input data and summarize field paths and types.",
                 "inputSchema": analyze_input_input_schema()
+            },
+            {
+                "name": "generate_rules_from_base",
+                "description": "Generate rules by mapping input data to existing rule targets.",
+                "inputSchema": generate_rules_from_base_input_schema()
             }
         ]
     })
@@ -701,6 +707,101 @@ fn analyze_input_input_schema() -> Value {
     })
 }
 
+fn generate_rules_from_base_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "rules_path": {
+                "type": "string",
+                "description": "Path to the YAML rules file. Mutually exclusive with rules_text.",
+                "examples": ["rules.yaml"]
+            },
+            "rules_text": {
+                "type": "string",
+                "description": "Inline YAML rules content. Mutually exclusive with rules_path.",
+                "examples": ["version: 1\ninput:\n  format: json\n  json: {}\nmappings:\n  - target: \"id\"\n    source: \"id\""]
+            },
+            "input_path": {
+                "type": "string",
+                "description": "Path to the input CSV/JSON file. Mutually exclusive with input_text and input_json.",
+                "examples": ["input.json"]
+            },
+            "input_text": {
+                "type": "string",
+                "description": "Inline input text (CSV or JSON). Mutually exclusive with input_path and input_json.",
+                "examples": ["{\"items\":[{\"id\":1}]}"]
+            },
+            "input_json": {
+                "type": ["object", "array"],
+                "description": "Inline input JSON value. Mutually exclusive with input_path and input_text.",
+                "examples": [[{"id": 1}]]
+            },
+            "format": {
+                "type": "string",
+                "enum": ["csv", "json"],
+                "description": "Override input format.",
+                "examples": ["json"]
+            },
+            "records_path": {
+                "type": "string",
+                "description": "Optional records path for JSON inputs.",
+                "examples": ["items"]
+            },
+            "max_candidates": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Maximum number of candidates to return per target.",
+                "examples": [3]
+            }
+        },
+        "allOf": [
+            {
+                "oneOf": [
+                    {
+                        "required": ["rules_path"],
+                        "not": { "required": ["rules_text"] }
+                    },
+                    {
+                        "required": ["rules_text"],
+                        "not": { "required": ["rules_path"] }
+                    }
+                ]
+            },
+            {
+                "oneOf": [
+                    {
+                        "required": ["input_path"],
+                        "not": {
+                            "anyOf": [
+                                { "required": ["input_text"] },
+                                { "required": ["input_json"] }
+                            ]
+                        }
+                    },
+                    {
+                        "required": ["input_text"],
+                        "not": {
+                            "anyOf": [
+                                { "required": ["input_path"] },
+                                { "required": ["input_json"] }
+                            ]
+                        }
+                    },
+                    {
+                        "required": ["input_json"],
+                        "not": {
+                            "anyOf": [
+                                { "required": ["input_path"] },
+                                { "required": ["input_text"] }
+                            ]
+                        }
+                    }
+                ]
+            }
+        ]
+    })
+}
+
 enum CallError {
     InvalidParams(String),
     Tool {
@@ -730,6 +831,7 @@ fn handle_tools_call(params: &Value) -> Result<Value, CallError> {
         "generate_dto" => run_generate_dto_tool(args),
         "list_ops" => run_list_ops_tool(),
         "analyze_input" => run_analyze_input_tool(args),
+        "generate_rules_from_base" => run_generate_rules_from_base_tool(args),
         _ => Ok(tool_error_result(&format!("unknown tool: {}", name), None)),
     }
 }
@@ -1189,6 +1291,259 @@ fn run_analyze_input_tool(args: &Map<String, Value>) -> Result<Value, CallError>
     }))
 }
 
+fn run_generate_rules_from_base_tool(args: &Map<String, Value>) -> Result<Value, CallError> {
+    let rules_path = get_optional_string(args, "rules_path").map_err(CallError::InvalidParams)?;
+    let rules_text = get_optional_string(args, "rules_text").map_err(CallError::InvalidParams)?;
+    let input_path = get_optional_string(args, "input_path").map_err(CallError::InvalidParams)?;
+    let input_text = get_optional_string(args, "input_text").map_err(CallError::InvalidParams)?;
+    let input_json = get_optional_json_value(args, "input_json").map_err(CallError::InvalidParams)?;
+    let format = get_optional_string(args, "format").map_err(CallError::InvalidParams)?;
+    let records_path =
+        get_optional_string(args, "records_path").map_err(CallError::InvalidParams)?;
+    let max_candidates =
+        get_optional_usize(args, "max_candidates").map_err(CallError::InvalidParams)?;
+
+    let rule_source_count = rules_path.is_some() as u8 + rules_text.is_some() as u8;
+    if rule_source_count == 0 {
+        return Err(CallError::InvalidParams(
+            "rules_path or rules_text is required".to_string(),
+        ));
+    }
+    if rule_source_count > 1 {
+        return Err(CallError::InvalidParams(
+            "rules_path and rules_text are mutually exclusive".to_string(),
+        ));
+    }
+
+    let input_source_count =
+        input_path.is_some() as u8 + input_text.is_some() as u8 + input_json.is_some() as u8;
+    if input_source_count == 0 {
+        return Err(CallError::InvalidParams(
+            "input_path, input_text, or input_json is required".to_string(),
+        ));
+    }
+    if input_source_count > 1 {
+        return Err(CallError::InvalidParams(
+            "input_path, input_text, and input_json are mutually exclusive".to_string(),
+        ));
+    }
+
+    if input_json.is_some()
+        && format
+            .as_deref()
+            .is_some_and(|value| value.eq_ignore_ascii_case("csv"))
+    {
+        return Err(CallError::InvalidParams(
+            "format must be json when input_json is provided".to_string(),
+        ));
+    }
+    if format
+        .as_deref()
+        .is_some_and(|value| !value.eq_ignore_ascii_case("csv") && !value.eq_ignore_ascii_case("json"))
+    {
+        return Err(CallError::InvalidParams(
+            "format must be csv or json".to_string(),
+        ));
+    }
+
+    let (rule, yaml) = load_rule_from_source(rules_path.as_deref(), rules_text.as_deref())?;
+    let mut yaml_value: YamlValue = serde_yaml::from_str(&yaml).map_err(|err| {
+        let message = format!("failed to parse rules yaml: {}", err);
+        CallError::Tool {
+            message: message.clone(),
+            errors: Some(vec![parse_error_json(&message, None)]),
+        }
+    })?;
+
+    let input_text = match (input_path.as_deref(), input_text.as_deref()) {
+        (Some(path), None) => fs::read_to_string(path).map_err(|err| {
+            let message = format!("failed to read input: {}", err);
+            CallError::Tool {
+                message: message.clone(),
+                errors: Some(vec![io_error_json(&message, Some(path))]),
+            }
+        })?,
+        (None, Some(text)) => text.to_string(),
+        (None, None) => String::new(),
+        _ => {
+            return Err(CallError::InvalidParams(
+                "input_path, input_text, or input_json is required".to_string(),
+            ))
+        }
+    };
+
+    let records_path = records_path.or_else(|| {
+        rule.input
+            .json
+            .as_ref()
+            .and_then(|json| json.records_path.clone())
+    });
+
+    let parse_format = if input_json.is_some() {
+        InputDataFormat::Json
+    } else if let Some(format) = format.as_deref() {
+        if format.eq_ignore_ascii_case("csv") {
+            InputDataFormat::Csv
+        } else {
+            InputDataFormat::Json
+        }
+    } else {
+        match rule.input.format {
+            InputFormat::Csv => InputDataFormat::Csv,
+            InputFormat::Json => InputDataFormat::Json,
+        }
+    };
+
+    let has_input_json = input_json.is_some();
+    let records = match (parse_format, input_json) {
+        (InputDataFormat::Json, Some(value)) => {
+            json_records_from_value(&value, records_path.as_deref())?
+        }
+        (InputDataFormat::Json, None) => {
+            let value = serde_json::from_str(&input_text).map_err(|err| {
+                let message = format!("failed to parse input JSON: {}", err);
+                CallError::Tool {
+                    message: message.clone(),
+                    errors: Some(vec![parse_error_json(&message, input_path.as_deref())]),
+                }
+            })?;
+            json_records_from_value(&value, records_path.as_deref())?
+        }
+        (InputDataFormat::Csv, _) => parse_csv_records(&input_text).map_err(|err| {
+            let message = format!("failed to parse input CSV: {}", err);
+            CallError::Tool {
+                message: message.clone(),
+                errors: Some(vec![parse_error_json(&message, input_path.as_deref())]),
+            }
+        })?,
+    };
+
+    let format_override = if has_input_json {
+        Some("json".to_string())
+    } else {
+        format
+    };
+    let format_for_yaml = if format_override.is_some() {
+        format_override.as_deref()
+    } else if records_path.is_some() {
+        Some("json")
+    } else {
+        None
+    };
+    update_yaml_input_spec(&mut yaml_value, format_for_yaml, records_path.as_deref());
+
+    let stats = analyze_records(&records, None);
+    let input_paths = build_input_paths(&stats);
+    let input_path_set: HashSet<String> =
+        input_paths.iter().map(|info| info.path.clone()).collect();
+
+    let max_candidates = max_candidates.unwrap_or(3);
+    let mut candidates_meta = Vec::new();
+    let mut unmapped = Vec::new();
+    let mut missing_refs = Vec::new();
+    let mut missing_ref_set = HashSet::new();
+    let mut mapped = 0usize;
+    let mut with_expr = 0usize;
+    let mut with_value = 0usize;
+
+    let mappings = yaml_mappings_sequence_mut(&mut yaml_value)?;
+
+    for (index, mapping) in rule.mappings.iter().enumerate() {
+        collect_missing_refs(
+            &mapping.target,
+            mapping.expr.as_ref(),
+            mapping.when.as_ref(),
+            &input_path_set,
+            &mut missing_refs,
+            &mut missing_ref_set,
+        );
+        if mapping.expr.is_some() {
+            with_expr += 1;
+            continue;
+        }
+        if mapping.value.is_some() {
+            with_value += 1;
+            continue;
+        }
+
+        let target_leaf = leaf_from_path(&mapping.target).unwrap_or_default();
+        let candidates = select_candidates(
+            &target_leaf,
+            mapping.source.as_deref(),
+            mapping.value_type.as_deref(),
+            &input_paths,
+            max_candidates,
+        );
+        let selected = candidates.first().cloned();
+
+        if let Some(selected) = selected.as_ref() {
+            mapped += 1;
+            update_yaml_mapping(mappings, index, Some(&selected.source))?;
+        } else {
+            unmapped.push(mapping.target.clone());
+            update_yaml_mapping(mappings, index, None)?;
+        }
+
+        let candidates_json: Vec<Value> = candidates
+            .iter()
+            .map(|candidate| {
+                json!({
+                    "source": candidate.source,
+                    "score": candidate.score,
+                    "reason": candidate.reason,
+                    "confidence": candidate.confidence
+                })
+            })
+            .collect();
+        let mut entry = json!({
+            "target": mapping.target,
+            "candidates": candidates_json
+        });
+        if let Some(selected) = selected {
+            entry["selected"] = json!(selected.source);
+            entry["confidence"] = json!(selected.confidence);
+        }
+        candidates_meta.push(entry);
+    }
+
+    let output_text = serde_yaml::to_string(&yaml_value).map_err(|err| {
+        let message = format!("failed to serialize rules yaml: {}", err);
+        CallError::Tool {
+            message: message.clone(),
+            errors: Some(vec![parse_error_json(&message, None)]),
+        }
+    })?;
+
+    let mut meta = serde_json::Map::new();
+    meta.insert(
+        "summary".to_string(),
+        json!({
+            "total": rule.mappings.len(),
+            "mapped": mapped,
+            "unmapped": unmapped.len(),
+            "with_expr": with_expr,
+            "with_value": with_value
+        }),
+    );
+    meta.insert("candidates".to_string(), Value::Array(candidates_meta));
+    if !unmapped.is_empty() {
+        meta.insert("unmapped".to_string(), json!(unmapped));
+    }
+    if !missing_refs.is_empty() {
+        meta.insert("missing_refs".to_string(), Value::Array(missing_refs));
+    }
+
+    Ok(json!({
+        "content": [
+            {
+                "type": "text",
+                "text": output_text
+            }
+        ],
+        "meta": meta
+    }))
+}
+
 fn tool_error_result(message: &str, errors: Option<Vec<Value>>) -> Value {
     let mut result = json!({
         "content": [
@@ -1529,6 +1884,186 @@ fn stats_to_json(stats: &HashMap<String, PathStats>) -> Value {
     Value::Array(values)
 }
 
+#[derive(Clone)]
+struct InputPathInfo {
+    path: String,
+    leaf: String,
+    tokens: Vec<String>,
+    type_counts: HashMap<&'static str, usize>,
+}
+
+#[derive(Clone)]
+struct Candidate {
+    source: String,
+    score: f64,
+    reason: &'static str,
+    confidence: &'static str,
+}
+
+fn build_input_paths(stats: &HashMap<String, PathStats>) -> Vec<InputPathInfo> {
+    let mut paths = Vec::new();
+    for (path, stat) in stats {
+        if path == "$" {
+            continue;
+        }
+        let leaf = leaf_from_path(path).unwrap_or_else(|| path.clone());
+        let tokens = split_tokens(&leaf);
+        paths.push(InputPathInfo {
+            path: path.clone(),
+            leaf,
+            tokens,
+            type_counts: stat.type_counts.clone(),
+        });
+    }
+    paths
+}
+
+fn leaf_from_path(path: &str) -> Option<String> {
+    match parse_path_tokens(path) {
+        Ok(tokens) => {
+            for token in tokens.iter().rev() {
+                if let PathToken::Key(key) = token {
+                    return Some(key.clone());
+                }
+            }
+            None
+        }
+        Err(_) => Some(path.to_string()),
+    }
+}
+
+fn split_tokens(value: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            current.push(ch.to_ascii_lowercase());
+        } else if !current.is_empty() {
+            tokens.push(current.clone());
+            current.clear();
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
+fn token_similarity(a: &[String], b: &[String]) -> f64 {
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
+    let set_a: HashSet<&str> = a.iter().map(String::as_str).collect();
+    let set_b: HashSet<&str> = b.iter().map(String::as_str).collect();
+    let overlap = set_a.intersection(&set_b).count() as f64;
+    let denom = set_a.len().max(set_b.len()) as f64;
+    if denom == 0.0 {
+        0.0
+    } else {
+        overlap / denom
+    }
+}
+
+fn select_candidates(
+    target_leaf: &str,
+    source_hint: Option<&str>,
+    value_type: Option<&str>,
+    input_paths: &[InputPathInfo],
+    max_candidates: usize,
+) -> Vec<Candidate> {
+    let mut candidates = Vec::new();
+    let target_tokens = split_tokens(target_leaf);
+    let source_leaf = source_hint.and_then(leaf_from_path);
+    let source_tokens = source_leaf
+        .as_deref()
+        .map(split_tokens)
+        .unwrap_or_default();
+
+    for input in input_paths {
+        let mut score = 0.0;
+        let mut reason = None;
+
+        if let Some(source_hint) = source_hint {
+            if input.path == source_hint {
+                score = 1.0;
+                reason = Some("exact_source");
+            }
+        }
+
+        if reason.is_none() && !target_leaf.is_empty() {
+            if input.leaf.eq_ignore_ascii_case(target_leaf) {
+                score = 0.8;
+                reason = Some("leaf_match");
+            }
+        }
+
+        if reason.is_none() {
+            if let Some(source_leaf) = source_leaf.as_deref() {
+                if input.leaf.eq_ignore_ascii_case(source_leaf) {
+                    score = 0.75;
+                    reason = Some("leaf_match");
+                }
+            }
+        }
+
+        if reason.is_none() {
+            let mut similarity = token_similarity(&target_tokens, &input.tokens);
+            if !source_tokens.is_empty() {
+                similarity = similarity.max(token_similarity(&source_tokens, &input.tokens));
+            }
+            if similarity > 0.0 {
+                score = 0.6 * similarity;
+                reason = Some("token_match");
+            }
+        }
+
+        if let Some(reason) = reason {
+            score += type_boost(&input.type_counts, value_type);
+            let confidence = confidence_for_score(score);
+            candidates.push(Candidate {
+                source: input.path.clone(),
+                score,
+                reason,
+                confidence,
+            });
+        }
+    }
+
+    candidates.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.source.cmp(&b.source))
+    });
+    candidates.truncate(max_candidates);
+    candidates
+}
+
+fn type_boost(type_counts: &HashMap<&'static str, usize>, value_type: Option<&str>) -> f64 {
+    let Some(value_type) = value_type else { return 0.0 };
+    let type_name = match value_type {
+        "string" => "string",
+        "int" | "float" => "number",
+        "bool" => "bool",
+        _ => return 0.0,
+    };
+    if type_counts.contains_key(type_name) {
+        0.1
+    } else {
+        0.0
+    }
+}
+
+fn confidence_for_score(score: f64) -> &'static str {
+    if score >= 0.9 {
+        "high"
+    } else if score >= 0.7 {
+        "medium"
+    } else {
+        "low"
+    }
+}
+
 fn value_type_name(value: &Value) -> &'static str {
     match value {
         Value::Null => "null",
@@ -1727,6 +2262,153 @@ fn get_value_by_tokens<'a>(value: &'a Value, tokens: &[PathToken]) -> Option<&'a
         }
     }
     Some(current)
+}
+
+fn update_yaml_input_spec(
+    root: &mut YamlValue,
+    format: Option<&str>,
+    records_path: Option<&str>,
+) {
+    if format.is_none() && records_path.is_none() {
+        return;
+    }
+    let Some(root_map) = root.as_mapping_mut() else { return; };
+    let input_value = root_map
+        .entry(yaml_key("input"))
+        .or_insert_with(|| YamlValue::Mapping(YamlMapping::new()));
+    let Some(input_map) = input_value.as_mapping_mut() else { return; };
+
+    if let Some(format) = format {
+        input_map.insert(yaml_key("format"), YamlValue::String(format.to_string()));
+    }
+    if let Some(records_path) = records_path {
+        let json_value = input_map
+            .entry(yaml_key("json"))
+            .or_insert_with(|| YamlValue::Mapping(YamlMapping::new()));
+        if let Some(json_map) = json_value.as_mapping_mut() {
+            json_map.insert(
+                yaml_key("records_path"),
+                YamlValue::String(records_path.to_string()),
+            );
+        }
+    }
+}
+
+fn yaml_mappings_sequence_mut(root: &mut YamlValue) -> Result<&mut Vec<YamlValue>, CallError> {
+    let Some(root_map) = root.as_mapping_mut() else {
+        let message = "rules yaml must be a mapping".to_string();
+        return Err(CallError::Tool {
+            message: message.clone(),
+            errors: Some(vec![parse_error_json(&message, None)]),
+        });
+    };
+    let Some(mappings_value) = root_map.get_mut(&yaml_key("mappings")) else {
+        let message = "rules yaml is missing mappings".to_string();
+        return Err(CallError::Tool {
+            message: message.clone(),
+            errors: Some(vec![parse_error_json(&message, None)]),
+        });
+    };
+    mappings_value
+        .as_sequence_mut()
+        .ok_or_else(|| {
+            let message = "rules yaml mappings must be a sequence".to_string();
+            CallError::Tool {
+                message: message.clone(),
+                errors: Some(vec![parse_error_json(&message, None)]),
+            }
+        })
+}
+
+fn update_yaml_mapping(
+    mappings: &mut Vec<YamlValue>,
+    index: usize,
+    source: Option<&str>,
+) -> Result<(), CallError> {
+    let Some(mapping_value) = mappings.get_mut(index) else {
+        let message = "mapping index out of range".to_string();
+        return Err(CallError::Tool {
+            message: message.clone(),
+            errors: Some(vec![parse_error_json(&message, None)]),
+        });
+    };
+    let Some(mapping_map) = mapping_value.as_mapping_mut() else {
+        let message = "mapping entry must be a mapping".to_string();
+        return Err(CallError::Tool {
+            message: message.clone(),
+            errors: Some(vec![parse_error_json(&message, None)]),
+        });
+    };
+
+    if let Some(source) = source {
+        mapping_map.insert(yaml_key("source"), YamlValue::String(source.to_string()));
+        mapping_map.remove(&yaml_key("value"));
+        mapping_map.remove(&yaml_key("expr"));
+    } else {
+        mapping_map.remove(&yaml_key("source"));
+        mapping_map.remove(&yaml_key("expr"));
+        mapping_map.insert(yaml_key("value"), YamlValue::Null);
+        mapping_map.insert(yaml_key("required"), YamlValue::Bool(false));
+    }
+    Ok(())
+}
+
+fn yaml_key(key: &str) -> YamlValue {
+    YamlValue::String(key.to_string())
+}
+
+fn collect_missing_refs(
+    target: &str,
+    expr: Option<&Expr>,
+    when: Option<&Expr>,
+    input_paths: &HashSet<String>,
+    out: &mut Vec<Value>,
+    seen: &mut HashSet<String>,
+) {
+    for expr in [expr, when] {
+        let Some(expr) = expr else { continue };
+        let mut refs = Vec::new();
+        collect_expr_refs(expr, &mut refs);
+        for reference in refs {
+            let Some(path) = input_ref_path(&reference) else { continue };
+            if input_paths.contains(&path) {
+                continue;
+            }
+            let key = format!("{}|{}", target, reference);
+            if seen.insert(key) {
+                out.push(json!({
+                    "target": target,
+                    "ref": reference,
+                    "path": path
+                }));
+            }
+        }
+    }
+}
+
+fn collect_expr_refs(expr: &Expr, out: &mut Vec<String>) {
+    match expr {
+        Expr::Ref(reference) => out.push(reference.ref_path.clone()),
+        Expr::Op(op) => {
+            for arg in &op.args {
+                collect_expr_refs(arg, out);
+            }
+        }
+        Expr::Literal(_) => {}
+    }
+}
+
+fn input_ref_path(reference: &str) -> Option<String> {
+    let trimmed = reference.trim();
+    if let Some(rest) = trimmed.strip_prefix("input.") {
+        if rest.is_empty() {
+            None
+        } else {
+            Some(rest.to_string())
+        }
+    } else {
+        None
+    }
 }
 
 fn apply_format_override(rule: &mut RuleFile, format: Option<&str>) -> Result<(), String> {

@@ -769,6 +769,7 @@ dependencies = [
  "csv",
  "serde",
  "serde_json",
+ "serde_yaml",
  "tempfile",
  "transform_rules",
 ]
