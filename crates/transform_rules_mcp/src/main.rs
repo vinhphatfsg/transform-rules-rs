@@ -2515,6 +2515,154 @@ fn normalize_typescript_text(text: &str) -> String {
     out
 }
 
+fn normalize_rust_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    let mut in_line_comment = false;
+    let mut in_block_comment = false;
+    let mut in_string: Option<char> = None;
+    let mut escape = false;
+    let mut angle_depth = 0usize;
+    let mut paren_depth = 0usize;
+    let mut bracket_depth = 0usize;
+    let mut last_newline = false;
+
+    while let Some(ch) = chars.next() {
+        if in_line_comment {
+            out.push(ch);
+            last_newline = ch == '\n';
+            if last_newline {
+                in_line_comment = false;
+            }
+            continue;
+        }
+
+        if in_block_comment {
+            out.push(ch);
+            last_newline = ch == '\n';
+            if ch == '*' && matches!(chars.peek(), Some('/')) {
+                out.push('/');
+                chars.next();
+                in_block_comment = false;
+                last_newline = false;
+            }
+            continue;
+        }
+
+        if let Some(quote) = in_string {
+            out.push(ch);
+            last_newline = ch == '\n';
+            if escape {
+                escape = false;
+                continue;
+            }
+            if ch == '\\' {
+                escape = true;
+                continue;
+            }
+            if ch == quote {
+                in_string = None;
+            }
+            continue;
+        }
+
+        if ch == '/' {
+            if let Some(next) = chars.peek() {
+                if *next == '/' {
+                    out.push(ch);
+                    out.push(*next);
+                    chars.next();
+                    in_line_comment = true;
+                    last_newline = false;
+                    continue;
+                }
+                if *next == '*' {
+                    out.push(ch);
+                    out.push(*next);
+                    chars.next();
+                    in_block_comment = true;
+                    last_newline = false;
+                    continue;
+                }
+            }
+        }
+
+        if ch == '"' || ch == '\'' {
+            out.push(ch);
+            in_string = Some(ch);
+            last_newline = false;
+            continue;
+        }
+
+        match ch {
+            '<' => {
+                angle_depth += 1;
+                out.push(ch);
+                last_newline = false;
+            }
+            '>' => {
+                if angle_depth > 0 {
+                    angle_depth -= 1;
+                }
+                out.push(ch);
+                last_newline = false;
+            }
+            '(' => {
+                paren_depth += 1;
+                out.push(ch);
+                last_newline = false;
+            }
+            ')' => {
+                if paren_depth > 0 {
+                    paren_depth -= 1;
+                }
+                out.push(ch);
+                last_newline = false;
+            }
+            '[' => {
+                bracket_depth += 1;
+                out.push(ch);
+                last_newline = false;
+            }
+            ']' => {
+                if bracket_depth > 0 {
+                    bracket_depth -= 1;
+                }
+                out.push(ch);
+                last_newline = false;
+            }
+            '{' => {
+                out.push(ch);
+                out.push('\n');
+                last_newline = true;
+            }
+            '}' => {
+                if !last_newline {
+                    out.push('\n');
+                }
+                out.push(ch);
+                out.push('\n');
+                last_newline = true;
+            }
+            ',' | ';' => {
+                out.push(ch);
+                if angle_depth == 0 && paren_depth == 0 && bracket_depth == 0 {
+                    out.push('\n');
+                    last_newline = true;
+                } else {
+                    last_newline = false;
+                }
+            }
+            _ => {
+                out.push(ch);
+                last_newline = false;
+            }
+        }
+    }
+
+    out
+}
+
 fn parse_typescript_types(text: &str) -> Result<(HashMap<String, DtoType>, Vec<String>), String> {
     let mut types: HashMap<String, DtoType> = HashMap::new();
     let mut order = Vec::new();
@@ -2618,8 +2766,9 @@ fn parse_rust_types(text: &str) -> Result<(HashMap<String, DtoType>, Vec<String>
     let mut current: Option<String> = None;
     let mut pending_json_key: Option<String> = None;
 
-    for raw_line in text.lines() {
-        let line = raw_line.trim();
+    let normalized = normalize_rust_text(text);
+    for raw_line in normalized.lines() {
+        let mut line = raw_line.trim();
         if line.is_empty() {
             continue;
         }
@@ -2654,7 +2803,15 @@ fn parse_rust_types(text: &str) -> Result<(HashMap<String, DtoType>, Vec<String>
             if let Some(rename) = parse_serde_rename(line) {
                 pending_json_key = Some(rename);
             }
-            continue;
+            if let Some(end) = line.find(']') {
+                let rest = line[end + 1..].trim();
+                if rest.is_empty() {
+                    continue;
+                }
+                line = rest;
+            } else {
+                continue;
+            }
         }
 
         if !line.starts_with("pub ") {

@@ -605,6 +605,43 @@ fn generate_rules_from_dto_single_line_interface() {
 }
 
 #[test]
+fn generate_rules_from_dto_single_line_rust_struct() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let dto_text = "pub struct Record { pub id: String, pub name: Option<String>, pub price: f64 }";
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 19,
+        "method": "tools/call",
+        "params": {
+            "name": "generate_rules_from_dto",
+            "arguments": {
+                "dto_text": dto_text,
+                "dto_language": "rust",
+                "input_json": {
+                    "id": "001",
+                    "name": "Ada",
+                    "price": 100.0
+                }
+            }
+        }
+    });
+
+    let response = server.send(&request);
+    let output_text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("output text");
+    let rule = parse_rule_file(output_text).expect("parse output rules");
+    assert_eq!(rule.mappings[0].source.as_deref(), Some("id"));
+    assert_eq!(rule.mappings[1].source.as_deref(), Some("name"));
+    assert_eq!(rule.mappings[2].source.as_deref(), Some("price"));
+
+    server.shutdown();
+}
+
+#[test]
 fn resources_list_and_read() {
     let mut server = McpServer::start();
     initialize(&mut server);
