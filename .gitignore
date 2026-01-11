@@ -2,3 +2,6 @@
 **/*.rs.bk
 **/*.swp
 .DS_Store
+/docs/plans
+AGENTS.md
+CLAUDE.md

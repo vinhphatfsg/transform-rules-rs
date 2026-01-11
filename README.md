@@ -82,53 +82,41 @@ Build from source:
 cargo build -p transform_rules_mcp --release
 ```
 
-Claude Desktop (macOS) config example:
-`~/Library/Application Support/Claude/claude_desktop_config.json`
-```json
-{
-  "mcpServers": {
-    "transform-rules": {
-      "command": "/absolute/path/to/transform-rules-mcp",
-      "args": []
-    }
-  }
-}
-```
+mcp add example:
+```bash
+# from download releases
+claude mcp add --transport stdio --scope local transform-rules -- `pwd`/transform-rules-mcp
+codex mcp add transform-rules -- `pwd`/transform-rules-mcp
 
-Tip: If you are in the directory where `transform-rules-mcp` exists, you can create a JSON snippet with an absolute path using `$(pwd)`:
-```
-MCP_BIN="$(pwd)/transform-rules-mcp"
-cat <<EOF > /tmp/transform-rules-mcp.json
-{
-  "mcpServers": {
-    "transform-rules": {
-      "command": "${MCP_BIN}",
-      "args": []
-    }
-  }
-}
-EOF
-```
-Merge the `mcpServers.transform-rules` entry into your Claude config if you already have one.
-
-Windows (PowerShell) snippet using `$PWD`:
-```
-$McpBin = Join-Path $PWD "transform-rules-mcp.exe"
-@"
-{
-  "mcpServers": {
-    "transform-rules": {
-      "command": "$McpBin",
-      "args": []
-    }
-  }
-}
-"@ | Set-Content -Path "$env:TEMP\\transform-rules-mcp.json"
+# from build source
+claude mcp add --transport stdio --scope local transform-rules -- `pwd`/target/release/transform-rules-mcp
+codex mcp add transform-rules -- `pwd`/target/release/transform-rules-mcp
 ```
 
 Tool: `transform`
-- Required: `rules_path`, `input_path`
-- Optional: `context_path`, `format` (`csv` or `json`), `ndjson`, `validate`, `output_path`
+- Required (one of): `rules_path` or `rules_text`
+- Required (one of): `input_path`, `input_text`, or `input_json`
+- Optional (one of): `context_path` or `context_json`
+- Optional: `format` (`csv` or `json`), `ndjson`, `validate`, `output_path`, `max_output_bytes`, `preview_rows`, `return_output_json`
+- Output: text in `content`; `meta` may include `warnings`, `output`, `output_path`, `output_bytes`, `truncated`
+
+Other MCP tools:
+- `validate_rules`: validate YAML rules (`rules_path` or `rules_text`)
+- `generate_dto`: generate DTOs (`rules_path` or `rules_text`, `language`, optional `name`)
+- `list_ops`: list supported ops (no args)
+- `analyze_input`: summarize input fields (`input_path`/`input_text`/`input_json`, optional `format`, `records_path`, `max_paths`)
+- `generate_rules_from_base`: map input data into existing rule targets (`rules_path`/`rules_text`, `input_*`, optional `format`, `records_path`, `max_candidates`)
+- `generate_rules_from_dto`: map input data into a DTO schema (`dto_text`, `dto_language`, `input_*`, optional `format`, `records_path`, `max_candidates`)
+
+MCP resources:
+- `transform-rules://docs/rules_spec_en`
+- `transform-rules://docs/rules_spec_ja`
+- `transform-rules://docs/readme`
+
+MCP prompts:
+- `rule_from_input_base`
+- `rule_from_dto`
+- `explain_errors`
 
 ## Quick start (CLI)
 

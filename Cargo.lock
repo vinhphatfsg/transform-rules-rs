@@ -766,8 +766,10 @@ dependencies = [
 name = "transform_rules_mcp"
 version = "0.1.0"
 dependencies = [
+ "csv",
  "serde",
  "serde_json",
+ "serde_yaml",
  "tempfile",
  "transform_rules",
 ]

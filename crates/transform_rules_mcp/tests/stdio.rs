@@ -4,6 +4,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 
 use serde_json::{json, Value};
 use tempfile::tempdir;
+use transform_rules::parse_rule_file;
 
 struct McpServer {
     child: Child,
@@ -84,7 +85,18 @@ fn initialize_and_list_tools() {
     let tools = response["result"]["tools"]
         .as_array()
         .expect("tools array");
-    assert!(tools.iter().any(|tool| tool["name"] == "transform"));
+    let expected = [
+        "transform",
+        "validate_rules",
+        "generate_dto",
+        "list_ops",
+        "analyze_input",
+        "generate_rules_from_base",
+        "generate_rules_from_dto",
+    ];
+    for name in expected {
+        assert!(tools.iter().any(|tool| tool["name"] == name));
+    }
 
     server.shutdown();
 }
@@ -293,6 +305,680 @@ mappings:
             { "name": "Bob", "age": "25" }
         ])
     );
+
+    server.shutdown();
+}
+
+#[test]
+fn validate_rules_success() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let rules_text = r#"version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "id"
+    source: "id"
+"#;
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 8,
+        "method": "tools/call",
+        "params": {
+            "name": "validate_rules",
+            "arguments": {
+                "rules_text": rules_text
+            }
+        }
+    });
+
+    let response = server.send(&request);
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("result text");
+    assert_eq!(text, "ok");
+
+    server.shutdown();
+}
+
+#[test]
+fn validate_rules_failure() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let rules_text = r#"version: 1
+input:
+  format: csv
+mappings: []
+"#;
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "tools/call",
+        "params": {
+            "name": "validate_rules",
+            "arguments": {
+                "rules_text": rules_text
+            }
+        }
+    });
+
+    let response = server.send(&request);
+    assert_eq!(response["result"]["isError"], true);
+    assert!(response["result"]["meta"]["errors"].is_array());
+
+    server.shutdown();
+}
+
+#[test]
+fn generate_dto_typescript() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let rules_text = r#"version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "id"
+    source: "id"
+"#;
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "tools/call",
+        "params": {
+            "name": "generate_dto",
+            "arguments": {
+                "rules_text": rules_text,
+                "language": "typescript"
+            }
+        }
+    });
+
+    let response = server.send(&request);
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("dto text");
+    assert!(text.contains("export interface"));
+
+    server.shutdown();
+}
+
+#[test]
+fn list_ops_success() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 11,
+        "method": "tools/call",
+        "params": {
+            "name": "list_ops",
+            "arguments": {}
+        }
+    });
+
+    let response = server.send(&request);
+    assert!(response["result"]["meta"]["ops"]["type_casts"].is_array());
+
+    server.shutdown();
+}
+
+#[test]
+fn analyze_input_json_success() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 12,
+        "method": "tools/call",
+        "params": {
+            "name": "analyze_input",
+            "arguments": {
+                "input_json": {
+                    "id": 1,
+                    "name": "Ada"
+                }
+            }
+        }
+    });
+
+    let response = server.send(&request);
+    let paths = response["result"]["meta"]["paths"]
+        .as_array()
+        .expect("paths array");
+    assert!(paths.iter().any(|item| item["path"] == "id"));
+    assert!(paths.iter().any(|item| item["path"] == "name"));
+
+    server.shutdown();
+}
+
+#[test]
+fn analyze_input_csv_success() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 13,
+        "method": "tools/call",
+        "params": {
+            "name": "analyze_input",
+            "arguments": {
+                "input_text": "id,name\n1,Ada\n2,Bob\n",
+                "format": "csv"
+            }
+        }
+    });
+
+    let response = server.send(&request);
+    let paths = response["result"]["meta"]["paths"]
+        .as_array()
+        .expect("paths array");
+    assert!(paths.iter().any(|item| item["path"] == "id"));
+
+    server.shutdown();
+}
+
+#[test]
+fn generate_rules_from_base_success() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let rules_text = r#"version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "id"
+    source: "old_id"
+  - target: "name"
+    source: "old_name"
+"#;
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 14,
+        "method": "tools/call",
+        "params": {
+            "name": "generate_rules_from_base",
+            "arguments": {
+                "rules_text": rules_text,
+                "input_json": {
+                    "id": 1,
+                    "name": "Ada"
+                }
+            }
+        }
+    });
+
+    let response = server.send(&request);
+    let output_text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("output text");
+    let rule = parse_rule_file(output_text).expect("parse output rules");
+    assert_eq!(rule.mappings[0].source.as_deref(), Some("id"));
+    assert_eq!(rule.mappings[1].source.as_deref(), Some("name"));
+
+    server.shutdown();
+}
+
+#[test]
+fn generate_rules_from_dto_success() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let dto_text = r#"export interface Record {
+  id: string;
+  name?: string;
+}"#;
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 15,
+        "method": "tools/call",
+        "params": {
+            "name": "generate_rules_from_dto",
+            "arguments": {
+                "dto_text": dto_text,
+                "dto_language": "typescript",
+                "input_json": {
+                    "id": 1,
+                    "name": "Ada"
+                }
+            }
+        }
+    });
+
+    let response = server.send(&request);
+    let output_text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("output text");
+    let rule = parse_rule_file(output_text).expect("parse output rules");
+    assert_eq!(rule.mappings[0].source.as_deref(), Some("id"));
+    assert_eq!(rule.mappings[1].source.as_deref(), Some("name"));
+
+    server.shutdown();
+}
+
+#[test]
+fn generate_rules_from_dto_single_line_interface() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let dto_text = "export interface Record { id: string; name?: string; }";
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 16,
+        "method": "tools/call",
+        "params": {
+            "name": "generate_rules_from_dto",
+            "arguments": {
+                "dto_text": dto_text,
+                "dto_language": "typescript",
+                "input_json": {
+                    "id": 1,
+                    "name": "Ada"
+                }
+            }
+        }
+    });
+
+    let response = server.send(&request);
+    let output_text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("output text");
+    let rule = parse_rule_file(output_text).expect("parse output rules");
+    assert_eq!(rule.mappings[0].source.as_deref(), Some("id"));
+    assert_eq!(rule.mappings[1].source.as_deref(), Some("name"));
+
+    server.shutdown();
+}
+
+#[test]
+fn generate_rules_from_dto_single_line_rust_struct() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let dto_text = "pub struct Record { pub id: String, pub name: Option<String>, pub price: f64 }";
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 19,
+        "method": "tools/call",
+        "params": {
+            "name": "generate_rules_from_dto",
+            "arguments": {
+                "dto_text": dto_text,
+                "dto_language": "rust",
+                "input_json": {
+                    "id": "001",
+                    "name": "Ada",
+                    "price": 100.0
+                }
+            }
+        }
+    });
+
+    let response = server.send(&request);
+    let output_text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("output text");
+    let rule = parse_rule_file(output_text).expect("parse output rules");
+    assert_eq!(rule.mappings[0].source.as_deref(), Some("id"));
+    assert_eq!(rule.mappings[1].source.as_deref(), Some("name"));
+    assert_eq!(rule.mappings[2].source.as_deref(), Some("price"));
+
+    server.shutdown();
+}
+
+#[test]
+fn generate_rules_from_dto_python_single_line_alias() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let dto_text = "class Record(BaseModel): id: str; name: Optional[str] = None; price: float = Field(alias=\"price_cents\")";
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 20,
+        "method": "tools/call",
+        "params": {
+            "name": "generate_rules_from_dto",
+            "arguments": {
+                "dto_text": dto_text,
+                "dto_language": "python",
+                "input_json": {
+                    "id": "001",
+                    "name": "Ada",
+                    "price_cents": 100.0
+                }
+            }
+        }
+    });
+
+    let response = server.send(&request);
+    let output_text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("output text");
+    let rule = parse_rule_file(output_text).expect("parse output rules");
+
+    let id_mapping = rule
+        .mappings
+        .iter()
+        .find(|mapping| mapping.target == "id")
+        .expect("id mapping");
+    assert_eq!(id_mapping.source.as_deref(), Some("id"));
+    assert!(id_mapping.required);
+
+    let name_mapping = rule
+        .mappings
+        .iter()
+        .find(|mapping| mapping.target == "name")
+        .expect("name mapping");
+    assert_eq!(name_mapping.source.as_deref(), Some("name"));
+    assert!(!name_mapping.required);
+
+    let price_mapping = rule
+        .mappings
+        .iter()
+        .find(|mapping| mapping.target == "price_cents")
+        .expect("price mapping");
+    assert_eq!(price_mapping.source.as_deref(), Some("price_cents"));
+    assert!(price_mapping.required);
+
+    server.shutdown();
+}
+
+#[test]
+fn generate_rules_from_dto_go_single_line_tags() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let dto_text = "type Record struct { ID string `json:\"id\"` Name *string `json:\"name,omitempty\"` Price float64 `json:\"price\"` }";
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 21,
+        "method": "tools/call",
+        "params": {
+            "name": "generate_rules_from_dto",
+            "arguments": {
+                "dto_text": dto_text,
+                "dto_language": "go",
+                "input_json": {
+                    "id": "001",
+                    "name": "Ada",
+                    "price": 100.0
+                }
+            }
+        }
+    });
+
+    let response = server.send(&request);
+    let output_text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("output text");
+    let rule = parse_rule_file(output_text).expect("parse output rules");
+
+    let id_mapping = rule
+        .mappings
+        .iter()
+        .find(|mapping| mapping.target == "id")
+        .expect("id mapping");
+    assert_eq!(id_mapping.source.as_deref(), Some("id"));
+    assert!(id_mapping.required);
+
+    let name_mapping = rule
+        .mappings
+        .iter()
+        .find(|mapping| mapping.target == "name")
+        .expect("name mapping");
+    assert_eq!(name_mapping.source.as_deref(), Some("name"));
+    assert!(!name_mapping.required);
+
+    server.shutdown();
+}
+
+#[test]
+fn generate_rules_from_dto_java_single_line_annotations() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let dto_text = "public class Record { @JsonProperty(\"user_id\") private String id; @SerializedName(\"full_name\") private Optional<String> name; }";
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 22,
+        "method": "tools/call",
+        "params": {
+            "name": "generate_rules_from_dto",
+            "arguments": {
+                "dto_text": dto_text,
+                "dto_language": "java",
+                "input_json": {
+                    "user_id": "001",
+                    "full_name": "Ada"
+                }
+            }
+        }
+    });
+
+    let response = server.send(&request);
+    let output_text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("output text");
+    let rule = parse_rule_file(output_text).expect("parse output rules");
+
+    let id_mapping = rule
+        .mappings
+        .iter()
+        .find(|mapping| mapping.target == "user_id")
+        .expect("id mapping");
+    assert_eq!(id_mapping.source.as_deref(), Some("user_id"));
+    assert!(id_mapping.required);
+
+    let name_mapping = rule
+        .mappings
+        .iter()
+        .find(|mapping| mapping.target == "full_name")
+        .expect("name mapping");
+    assert_eq!(name_mapping.source.as_deref(), Some("full_name"));
+    assert!(!name_mapping.required);
+
+    server.shutdown();
+}
+
+#[test]
+fn generate_rules_from_dto_kotlin_single_line_annotations() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let dto_text = "data class Record(@SerialName(\"user_id\") val id: String, @Json(name = \"full_name\") val name: String?, val price: Double)";
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 23,
+        "method": "tools/call",
+        "params": {
+            "name": "generate_rules_from_dto",
+            "arguments": {
+                "dto_text": dto_text,
+                "dto_language": "kotlin",
+                "input_json": {
+                    "user_id": "001",
+                    "full_name": "Ada",
+                    "price": 100.0
+                }
+            }
+        }
+    });
+
+    let response = server.send(&request);
+    let output_text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("output text");
+    let rule = parse_rule_file(output_text).expect("parse output rules");
+
+    let id_mapping = rule
+        .mappings
+        .iter()
+        .find(|mapping| mapping.target == "user_id")
+        .expect("id mapping");
+    assert_eq!(id_mapping.source.as_deref(), Some("user_id"));
+    assert!(id_mapping.required);
+
+    let name_mapping = rule
+        .mappings
+        .iter()
+        .find(|mapping| mapping.target == "full_name")
+        .expect("name mapping");
+    assert_eq!(name_mapping.source.as_deref(), Some("full_name"));
+    assert!(!name_mapping.required);
+
+    let price_mapping = rule
+        .mappings
+        .iter()
+        .find(|mapping| mapping.target == "price")
+        .expect("price mapping");
+    assert_eq!(price_mapping.source.as_deref(), Some("price"));
+    assert!(price_mapping.required);
+
+    server.shutdown();
+}
+
+#[test]
+fn generate_rules_from_dto_swift_single_line_coding_keys() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let dto_text = "struct Record: Codable { let id: String; let name: String?; let price: Double; enum CodingKeys: String, CodingKey { case id = \"user_id\", name, price = \"price_cents\" } }";
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 24,
+        "method": "tools/call",
+        "params": {
+            "name": "generate_rules_from_dto",
+            "arguments": {
+                "dto_text": dto_text,
+                "dto_language": "swift",
+                "input_json": {
+                    "user_id": "001",
+                    "name": "Ada",
+                    "price_cents": 100.0
+                }
+            }
+        }
+    });
+
+    let response = server.send(&request);
+    let output_text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("output text");
+    let rule = parse_rule_file(output_text).expect("parse output rules");
+
+    let id_mapping = rule
+        .mappings
+        .iter()
+        .find(|mapping| mapping.target == "user_id")
+        .expect("id mapping");
+    assert_eq!(id_mapping.source.as_deref(), Some("user_id"));
+    assert!(id_mapping.required);
+
+    let name_mapping = rule
+        .mappings
+        .iter()
+        .find(|mapping| mapping.target == "name")
+        .expect("name mapping");
+    assert_eq!(name_mapping.source.as_deref(), Some("name"));
+    assert!(!name_mapping.required);
+
+    let price_mapping = rule
+        .mappings
+        .iter()
+        .find(|mapping| mapping.target == "price_cents")
+        .expect("price mapping");
+    assert_eq!(price_mapping.source.as_deref(), Some("price_cents"));
+    assert!(price_mapping.required);
+
+    server.shutdown();
+}
+
+#[test]
+fn resources_list_and_read() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let list_request = json!({
+        "jsonrpc": "2.0",
+        "id": 17,
+        "method": "resources/list"
+    });
+    let list_response = server.send(&list_request);
+    let resources = list_response["result"]["resources"]
+        .as_array()
+        .expect("resources array");
+    assert!(resources.iter().any(|item| item["uri"] == "transform-rules://docs/rules_spec_en"));
+
+    let read_request = json!({
+        "jsonrpc": "2.0",
+        "id": 18,
+        "method": "resources/read",
+        "params": {
+            "uri": "transform-rules://docs/rules_spec_en"
+        }
+    });
+    let read_response = server.send(&read_request);
+    let text = read_response["result"]["contents"][0]["text"]
+        .as_str()
+        .expect("resource text");
+    assert!(text.contains("Expr"));
+
+    server.shutdown();
+}
+
+#[test]
+fn prompts_list_and_get() {
+    let mut server = McpServer::start();
+    initialize(&mut server);
+
+    let list_request = json!({
+        "jsonrpc": "2.0",
+        "id": 18,
+        "method": "prompts/list"
+    });
+    let list_response = server.send(&list_request);
+    let prompts = list_response["result"]["prompts"]
+        .as_array()
+        .expect("prompts array");
+    assert!(prompts.iter().any(|item| item["name"] == "rule_from_input_base"));
+
+    let get_request = json!({
+        "jsonrpc": "2.0",
+        "id": 19,
+        "method": "prompts/get",
+        "params": {
+            "name": "explain_errors",
+            "arguments": {
+                "errors_json": "[{\"message\":\"oops\"}]"
+            }
+        }
+    });
+    let get_response = server.send(&get_request);
+    let content = get_response["result"]["messages"][0]["content"]
+        .as_str()
+        .expect("prompt content");
+    assert!(content.contains("Errors:"));
 
     server.shutdown();
 }
