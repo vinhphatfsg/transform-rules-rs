@@ -2451,13 +2451,78 @@ fn parse_dto_schema(text: &str, language: DtoSourceLanguage) -> Result<DtoSchema
     Ok(DtoSchema { root, types })
 }
 
+fn normalize_typescript_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    let mut in_line_comment = false;
+    let mut in_block_comment = false;
+
+    while let Some(ch) = chars.next() {
+        if in_line_comment {
+            out.push(ch);
+            if ch == '\n' {
+                in_line_comment = false;
+            }
+            continue;
+        }
+
+        if in_block_comment {
+            out.push(ch);
+            if ch == '*' && matches!(chars.peek(), Some('/')) {
+                out.push('/');
+                chars.next();
+                in_block_comment = false;
+            }
+            continue;
+        }
+
+        if ch == '/' {
+            if let Some(next) = chars.peek() {
+                if *next == '/' {
+                    out.push(ch);
+                    out.push(*next);
+                    chars.next();
+                    in_line_comment = true;
+                    continue;
+                }
+                if *next == '*' {
+                    out.push(ch);
+                    out.push(*next);
+                    chars.next();
+                    in_block_comment = true;
+                    continue;
+                }
+            }
+        }
+
+        match ch {
+            '{' => {
+                out.push(ch);
+                out.push('\n');
+            }
+            '}' => {
+                out.push('\n');
+                out.push(ch);
+            }
+            ';' => {
+                out.push(ch);
+                out.push('\n');
+            }
+            _ => out.push(ch),
+        }
+    }
+
+    out
+}
+
 fn parse_typescript_types(text: &str) -> Result<(HashMap<String, DtoType>, Vec<String>), String> {
     let mut types: HashMap<String, DtoType> = HashMap::new();
     let mut order = Vec::new();
     let mut current: Option<String> = None;
     let mut pending_json_key: Option<String> = None;
 
-    for raw_line in text.lines() {
+    let normalized = normalize_typescript_text(text);
+    for raw_line in normalized.lines() {
         let mut line = raw_line.trim();
         if line.is_empty() {
             continue;
