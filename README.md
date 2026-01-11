@@ -139,6 +139,16 @@ Other MCP tools:
 - `list_ops`: list supported ops (no args)
 - `analyze_input`: summarize input fields (`input_path`/`input_text`/`input_json`, optional `format`, `records_path`, `max_paths`)
 
+MCP resources:
+- `transform-rules://docs/rules_spec_en`
+- `transform-rules://docs/rules_spec_ja`
+- `transform-rules://docs/readme`
+
+MCP prompts:
+- `rule_from_input_base`
+- `rule_from_dto`
+- `explain_errors`
+
 ## Quick start (CLI)
 
 ### 1) Prepare rules
