@@ -6,6 +6,9 @@ mod dto;
 mod transform;
 mod validator;
 
+/// Library version from Cargo.toml
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub use error::{
     ErrorCode, RuleError, TransformError, TransformErrorKind, TransformWarning, ValidationResult,
     YamlLocation,
