@@ -1,0 +1,27 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "name_slug"
+    expr:
+      chain:
+        - { ref: "input.name" }
+        - { op: "trim" }
+        - { op: "replace", args: [ " ", "_", "all" ] }
+        - { op: "lowercase" }
+  - target: "temp_c"
+    expr:
+      chain:
+        - { ref: "input.temp_f" }
+        - { op: "-", args: [ 32 ] }
+        - { op: "*", args: [ 5 ] }
+        - { op: "/", args: [ 9 ] }
+        - { op: "round", args: [ 2 ] }
+        - { op: "to_string" }
+        - { op: "pad_start", args: [ 3, "0" ] }
+  - target: "tag_list"
+    expr:
+      chain:
+        - { ref: "input.tags" }
+        - { op: "split", args: [ "," ] }

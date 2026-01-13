@@ -79,24 +79,32 @@ pub struct Mapping {
     pub default: Option<JsonValue>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(untagged)]
 pub enum Expr {
     Ref(ExprRef),
     Op(ExprOp),
+    Chain(ExprChain),
     Literal(JsonValue),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct ExprRef {
     #[serde(rename = "ref")]
     pub ref_path: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct ExprOp {
     pub op: String,
+    #[serde(default)]
     pub args: Vec<Expr>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct ExprChain {
+    pub chain: Vec<Expr>,
 }

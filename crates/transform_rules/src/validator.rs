@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::error::{ErrorCode, RuleError, ValidationResult};
 use crate::locator::YamlLocator;
-use crate::model::{Expr, ExprOp, ExprRef, InputFormat, Mapping, RuleFile};
+use crate::model::{Expr, ExprChain, ExprOp, ExprRef, InputFormat, Mapping, RuleFile};
 use crate::path::{parse_path, PathToken};
 
 pub fn validate_rule_file(rule: &RuleFile) -> ValidationResult {
@@ -230,6 +230,9 @@ fn validate_expr(
     match expr {
         Expr::Ref(expr_ref) => validate_ref(expr_ref, base_path, produced_targets, ctx),
         Expr::Op(expr_op) => validate_op(expr_op, base_path, produced_targets, ctx),
+        Expr::Chain(expr_chain) => {
+            validate_chain(expr_chain, base_path, produced_targets, ctx)
+        }
         Expr::Literal(_) => {}
     }
 }
@@ -300,6 +303,258 @@ fn bool_expr_kind(expr: &Expr) -> BoolExprKind {
             }
             _ => BoolExprKind::Maybe,
         },
+        Expr::Chain(expr_chain) => bool_expr_kind_chain(expr_chain),
+    }
+}
+
+fn bool_expr_kind_chain(expr_chain: &ExprChain) -> BoolExprKind {
+    if expr_chain.chain.is_empty() {
+        return BoolExprKind::NotBool;
+    }
+
+    let mut current = bool_expr_kind(&expr_chain.chain[0]);
+    for step in expr_chain.chain.iter().skip(1) {
+        let expr_op = match step {
+            Expr::Op(expr_op) => expr_op,
+            _ => return BoolExprKind::Maybe,
+        };
+        current = bool_expr_kind_for_op_with_input(expr_op, current);
+    }
+    current
+}
+
+fn bool_expr_kind_for_op_with_input(expr_op: &ExprOp, injected: BoolExprKind) -> BoolExprKind {
+    match expr_op.op.as_str() {
+        "concat"
+        | "to_string"
+        | "trim"
+        | "lowercase"
+        | "uppercase"
+        | "replace"
+        | "split"
+        | "pad_start"
+        | "pad_end"
+        | "lookup"
+        | "lookup_first"
+        | "+"
+        | "-"
+        | "*"
+        | "/"
+        | "round"
+        | "to_base"
+        | "date_format"
+        | "to_unixtime" => BoolExprKind::NotBool,
+        "and" | "or" | "not" => BoolExprKind::Bool,
+        "==" | "!=" | "<" | "<=" | ">" | ">=" | "~=" => BoolExprKind::Bool,
+        "coalesce" => {
+            let mut saw_maybe = matches!(injected, BoolExprKind::Maybe);
+            if matches!(injected, BoolExprKind::NotBool) {
+                return BoolExprKind::NotBool;
+            }
+            for arg in &expr_op.args {
+                match bool_expr_kind(arg) {
+                    BoolExprKind::Bool => {}
+                    BoolExprKind::Maybe => saw_maybe = true,
+                    BoolExprKind::NotBool => return BoolExprKind::NotBool,
+                }
+            }
+            if saw_maybe {
+                BoolExprKind::Maybe
+            } else {
+                BoolExprKind::Bool
+            }
+        }
+        _ => BoolExprKind::Maybe,
+    }
+}
+
+fn validate_chain(
+    expr_chain: &ExprChain,
+    base_path: &str,
+    produced_targets: &HashSet<Vec<PathToken>>,
+    ctx: &mut ValidationCtx<'_>,
+) {
+    if expr_chain.chain.is_empty() {
+        ctx.push(
+            ErrorCode::InvalidExprShape,
+            "expr.chain must be a non-empty array",
+            format!("{}.chain", base_path),
+        );
+        return;
+    }
+
+    for (index, item) in expr_chain.chain.iter().enumerate() {
+        let item_path = format!("{}.chain[{}]", base_path, index);
+        if index == 0 {
+            validate_expr(item, &item_path, produced_targets, ctx);
+            continue;
+        }
+
+        match item {
+            Expr::Op(expr_op) => {
+                validate_chain_op(expr_op, &item_path, produced_targets, ctx);
+            }
+            _ => {
+                ctx.push(
+                    ErrorCode::InvalidExprShape,
+                    "expr.chain items after first must be op",
+                    item_path,
+                );
+            }
+        }
+    }
+}
+
+fn validate_chain_op(
+    expr_op: &ExprOp,
+    base_path: &str,
+    produced_targets: &HashSet<Vec<PathToken>>,
+    ctx: &mut ValidationCtx<'_>,
+) {
+    if !is_valid_op(&expr_op.op) {
+        ctx.push(
+            ErrorCode::UnknownOp,
+            "expr.op is not supported",
+            format!("{}.op", base_path),
+        );
+    }
+
+    let args_len = expr_op.args.len() + 1;
+    match expr_op.op.as_str() {
+        "trim" | "lowercase" | "uppercase" | "to_string" | "not" => {
+            if args_len != 1 {
+                ctx.push(
+                    ErrorCode::InvalidArgs,
+                    "expr.args must contain exactly one item",
+                    format!("{}.args", base_path),
+                );
+            }
+        }
+        "replace" => {
+            if !(3..=4).contains(&args_len) {
+                ctx.push(
+                    ErrorCode::InvalidArgs,
+                    "expr.args must contain three or four items",
+                    format!("{}.args", base_path),
+                );
+            }
+        }
+        "split" => {
+            if args_len != 2 {
+                ctx.push(
+                    ErrorCode::InvalidArgs,
+                    "expr.args must contain exactly two items",
+                    format!("{}.args", base_path),
+                );
+            }
+        }
+        "pad_start" | "pad_end" => {
+            if !(2..=3).contains(&args_len) {
+                ctx.push(
+                    ErrorCode::InvalidArgs,
+                    "expr.args must contain two or three items",
+                    format!("{}.args", base_path),
+                );
+            }
+        }
+        "lookup" | "lookup_first" => {
+            validate_lookup_args_chain(expr_op, base_path, ctx);
+        }
+        "+" | "*" | "and" | "or" => {
+            if args_len < 2 {
+                ctx.push(
+                    ErrorCode::InvalidArgs,
+                    "expr.args must contain at least two items",
+                    format!("{}.args", base_path),
+                );
+            }
+        }
+        "-" | "/" | "to_base" | "==" | "!=" | "<" | "<=" | ">" | ">=" | "~=" => {
+            if args_len != 2 {
+                ctx.push(
+                    ErrorCode::InvalidArgs,
+                    "expr.args must contain exactly two items",
+                    format!("{}.args", base_path),
+                );
+            }
+        }
+        "round" => {
+            if !(1..=2).contains(&args_len) {
+                ctx.push(
+                    ErrorCode::InvalidArgs,
+                    "expr.args must contain one or two items",
+                    format!("{}.args", base_path),
+                );
+            }
+        }
+        "date_format" => {
+            if !(2..=4).contains(&args_len) {
+                ctx.push(
+                    ErrorCode::InvalidArgs,
+                    "expr.args must contain two to four items",
+                    format!("{}.args", base_path),
+                );
+            }
+        }
+        "to_unixtime" => {
+            if !(1..=3).contains(&args_len) {
+                ctx.push(
+                    ErrorCode::InvalidArgs,
+                    "expr.args must contain one to three items",
+                    format!("{}.args", base_path),
+                );
+            }
+        }
+        _ => {}
+    }
+
+    for (index, arg) in expr_op.args.iter().enumerate() {
+        let arg_path = format!("{}.args[{}]", base_path, index);
+        validate_expr(arg, &arg_path, produced_targets, ctx);
+    }
+}
+
+fn validate_lookup_args_chain(expr_op: &ExprOp, base_path: &str, ctx: &mut ValidationCtx<'_>) {
+    let len = expr_op.args.len();
+    if !(2..=3).contains(&len) {
+        ctx.push(
+            ErrorCode::InvalidArgs,
+            "lookup args must be [key_path, match_value, output_path?] in chain",
+            format!("{}.args", base_path),
+        );
+        return;
+    }
+
+    let key_path = literal_string(&expr_op.args[0]);
+    if key_path.is_none() || key_path == Some("") {
+        ctx.push(
+            ErrorCode::InvalidArgs,
+            "lookup key_path must be a non-empty string literal",
+            format!("{}.args[0]", base_path),
+        );
+    } else if parse_path(key_path.unwrap()).is_err() {
+        ctx.push(
+            ErrorCode::InvalidArgs,
+            "lookup key_path is invalid",
+            format!("{}.args[0]", base_path),
+        );
+    }
+
+    if len == 3 {
+        let output_path = literal_string(&expr_op.args[2]);
+        if output_path.is_none() || output_path == Some("") {
+            ctx.push(
+                ErrorCode::InvalidArgs,
+                "lookup output_path must be a non-empty string literal",
+                format!("{}.args[2]", base_path),
+            );
+        } else if parse_path(output_path.unwrap()).is_err() {
+            ctx.push(
+                ErrorCode::InvalidArgs,
+                "lookup output_path is invalid",
+                format!("{}.args[2]", base_path),
+            );
+        }
     }
 }
 

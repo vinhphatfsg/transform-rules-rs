@@ -14,7 +14,7 @@ pub use error::{
     YamlLocation,
 };
 pub use dto::{generate_dto, DtoError, DtoLanguage};
-pub use model::{Expr, ExprOp, ExprRef, InputFormat, InputSpec, Mapping, RuleFile};
+pub use model::{Expr, ExprChain, ExprOp, ExprRef, InputFormat, InputSpec, Mapping, RuleFile};
 pub use transform::{
     preflight_validate, preflight_validate_with_warnings, transform, transform_stream,
     transform_with_warnings, TransformStream, TransformStreamItem,

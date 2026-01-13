@@ -154,6 +154,21 @@ Forms:
 - Literal: string/number/bool/null
 - Ref: `{ ref: "input.user_id" }`
 - Op: `{ op: "<name>", args: [Expr, ...] }`
+- Chain: `{ chain: [ Expr, { op: "<name>", args: [...] }, ... ] }`
+
+### Chain (pipe shorthand)
+
+`chain` evaluates the first expression, then injects the previous result as the **first arg** for each subsequent `op`.
+Items after the first must be `{ op: ... }`, and `args` can be omitted.
+
+```yaml
+expr:
+  chain:
+    - { ref: "input.name" }
+    - { op: "trim" }
+    - { op: "replace", args: [ " ", "_", "all" ] }
+    - { op: "lowercase" }
+```
 
 ## Operations (v1)
 
