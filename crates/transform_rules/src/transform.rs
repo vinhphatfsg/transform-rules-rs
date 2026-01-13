@@ -1,3 +1,5 @@
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime};
+use chrono::offset::TimeZone;
 use csv::ReaderBuilder;
 use serde_json::{Map, Value as JsonValue};
 
@@ -580,8 +582,17 @@ fn eval_op(
                 Ok(JsonValue::String(s.to_uppercase()))
             },
         ),
+        "replace" => eval_replace(&expr_op.args, record, context, out, base_path),
+        "split" => eval_split(&expr_op.args, record, context, out, base_path),
+        "pad_start" => eval_pad(&expr_op.args, record, context, out, base_path, true),
+        "pad_end" => eval_pad(&expr_op.args, record, context, out, base_path, false),
         "lookup" => eval_lookup(&expr_op.args, record, context, out, base_path, false),
         "lookup_first" => eval_lookup(&expr_op.args, record, context, out, base_path, true),
+        "+" | "-" | "*" | "/" => eval_numeric_op(expr_op, record, context, out, base_path),
+        "round" => eval_round(&expr_op.args, record, context, out, base_path),
+        "to_base" => eval_to_base(&expr_op.args, record, context, out, base_path),
+        "date_format" => eval_date_format(&expr_op.args, record, context, out, base_path),
+        "to_unixtime" => eval_to_unixtime(&expr_op.args, record, context, out, base_path),
         "and" => eval_bool_and_or(&expr_op.args, record, context, out, base_path, true),
         "or" => eval_bool_and_or(&expr_op.args, record, context, out, base_path, false),
         "not" => eval_bool_not(&expr_op.args, record, context, out, base_path),
@@ -630,6 +641,592 @@ where
             op(&value, &arg_path).map(EvalValue::Value)
         }
     }
+}
+
+fn eval_arg_value(
+    expr: &Expr,
+    record: &JsonValue,
+    context: Option<&JsonValue>,
+    out: &JsonValue,
+    path: &str,
+) -> Result<Option<JsonValue>, TransformError> {
+    match eval_expr(expr, record, context, out, path)? {
+        EvalValue::Missing => Ok(None),
+        EvalValue::Value(value) => Ok(Some(value)),
+    }
+}
+
+fn eval_arg_string(
+    expr: &Expr,
+    record: &JsonValue,
+    context: Option<&JsonValue>,
+    out: &JsonValue,
+    path: &str,
+) -> Result<Option<String>, TransformError> {
+    let value = match eval_arg_value(expr, record, context, out, path)? {
+        None => return Ok(None),
+        Some(value) => value,
+    };
+    if value.is_null() {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "expr arg must not be null",
+        )
+        .with_path(path));
+    }
+    value_as_string(&value, path).map(Some)
+}
+
+#[derive(Clone, Copy)]
+enum ReplaceMode {
+    LiteralFirst,
+    LiteralAll,
+    RegexFirst,
+    RegexAll,
+}
+
+fn parse_replace_mode(value: &str, path: &str) -> Result<ReplaceMode, TransformError> {
+    match value {
+        "all" => Ok(ReplaceMode::LiteralAll),
+        "regex" => Ok(ReplaceMode::RegexFirst),
+        "regex_all" => Ok(ReplaceMode::RegexAll),
+        _ => Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "replace mode must be all|regex|regex_all",
+        )
+        .with_path(path)),
+    }
+}
+
+fn eval_replace(
+    args: &[Expr],
+    record: &JsonValue,
+    context: Option<&JsonValue>,
+    out: &JsonValue,
+    base_path: &str,
+) -> Result<EvalValue, TransformError> {
+    if !(3..=4).contains(&args.len()) {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "expr.args must contain three or four items",
+        )
+        .with_path(format!("{}.args", base_path)));
+    }
+
+    let value_path = format!("{}.args[0]", base_path);
+    let pattern_path = format!("{}.args[1]", base_path);
+    let replacement_path = format!("{}.args[2]", base_path);
+
+    let value = match eval_arg_string(&args[0], record, context, out, &value_path)? {
+        None => return Ok(EvalValue::Missing),
+        Some(value) => value,
+    };
+    let pattern = match eval_arg_string(&args[1], record, context, out, &pattern_path)? {
+        None => return Ok(EvalValue::Missing),
+        Some(value) => value,
+    };
+    let replacement =
+        match eval_arg_string(&args[2], record, context, out, &replacement_path)? {
+            None => return Ok(EvalValue::Missing),
+            Some(value) => value,
+        };
+
+    let mode = if args.len() == 4 {
+        let mode_path = format!("{}.args[3]", base_path);
+        let mode_value = match eval_arg_string(&args[3], record, context, out, &mode_path)? {
+            None => return Ok(EvalValue::Missing),
+            Some(value) => value,
+        };
+        parse_replace_mode(&mode_value, &mode_path)?
+    } else {
+        ReplaceMode::LiteralFirst
+    };
+
+    let replaced = match mode {
+        ReplaceMode::LiteralFirst => value.replacen(&pattern, &replacement, 1),
+        ReplaceMode::LiteralAll => value.replace(&pattern, &replacement),
+        ReplaceMode::RegexFirst => {
+            let regex = regex::Regex::new(&pattern).map_err(|_| {
+                TransformError::new(TransformErrorKind::ExprError, "regex pattern is invalid")
+                    .with_path(pattern_path)
+            })?;
+            regex.replace(&value, replacement.as_str()).to_string()
+        }
+        ReplaceMode::RegexAll => {
+            let regex = regex::Regex::new(&pattern).map_err(|_| {
+                TransformError::new(TransformErrorKind::ExprError, "regex pattern is invalid")
+                    .with_path(pattern_path)
+            })?;
+            regex.replace_all(&value, replacement.as_str()).to_string()
+        }
+    };
+
+    Ok(EvalValue::Value(JsonValue::String(replaced)))
+}
+
+fn eval_split(
+    args: &[Expr],
+    record: &JsonValue,
+    context: Option<&JsonValue>,
+    out: &JsonValue,
+    base_path: &str,
+) -> Result<EvalValue, TransformError> {
+    if args.len() != 2 {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "expr.args must contain exactly two items",
+        )
+        .with_path(format!("{}.args", base_path)));
+    }
+
+    let value_path = format!("{}.args[0]", base_path);
+    let delimiter_path = format!("{}.args[1]", base_path);
+    let value = match eval_arg_string(&args[0], record, context, out, &value_path)? {
+        None => return Ok(EvalValue::Missing),
+        Some(value) => value,
+    };
+    let delimiter = match eval_arg_string(&args[1], record, context, out, &delimiter_path)? {
+        None => return Ok(EvalValue::Missing),
+        Some(value) => value,
+    };
+
+    if delimiter.is_empty() {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "split delimiter must not be empty",
+        )
+        .with_path(delimiter_path));
+    }
+
+    let parts = value
+        .split(&delimiter)
+        .map(|part| JsonValue::String(part.to_string()))
+        .collect::<Vec<_>>();
+
+    Ok(EvalValue::Value(JsonValue::Array(parts)))
+}
+
+fn eval_pad(
+    args: &[Expr],
+    record: &JsonValue,
+    context: Option<&JsonValue>,
+    out: &JsonValue,
+    base_path: &str,
+    pad_start: bool,
+) -> Result<EvalValue, TransformError> {
+    if !(2..=3).contains(&args.len()) {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "expr.args must contain two or three items",
+        )
+        .with_path(format!("{}.args", base_path)));
+    }
+
+    let value_path = format!("{}.args[0]", base_path);
+    let length_path = format!("{}.args[1]", base_path);
+    let value = match eval_arg_string(&args[0], record, context, out, &value_path)? {
+        None => return Ok(EvalValue::Missing),
+        Some(value) => value,
+    };
+
+    let length_value = match eval_arg_value(&args[1], record, context, out, &length_path)? {
+        None => return Ok(EvalValue::Missing),
+        Some(value) => value,
+    };
+    if length_value.is_null() {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "expr arg must not be null",
+        )
+        .with_path(length_path));
+    }
+    let length = value_to_i64(
+        &length_value,
+        &length_path,
+        "pad length must be a non-negative integer",
+    )?;
+    if length < 0 {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "pad length must be a non-negative integer",
+        )
+        .with_path(length_path));
+    }
+
+    let pad_string = if args.len() == 3 {
+        let pad_path = format!("{}.args[2]", base_path);
+        match eval_arg_string(&args[2], record, context, out, &pad_path)? {
+            None => return Ok(EvalValue::Missing),
+            Some(value) => value,
+        }
+    } else {
+        " ".to_string()
+    };
+
+    let target_len = usize::try_from(length).map_err(|_| {
+        TransformError::new(
+            TransformErrorKind::ExprError,
+            "pad length must be a non-negative integer",
+        )
+        .with_path(length_path)
+    })?;
+
+    let padded = pad_string_value(&value, target_len, &pad_string, pad_start);
+    Ok(EvalValue::Value(JsonValue::String(padded)))
+}
+
+fn pad_string_value(value: &str, target_len: usize, pad: &str, pad_start: bool) -> String {
+    let value_len = value.chars().count();
+    if value_len >= target_len || pad.is_empty() {
+        return value.to_string();
+    }
+
+    let needed = target_len - value_len;
+    let pad_len = pad.chars().count();
+    let repeats = (needed + pad_len - 1) / pad_len;
+    let pad_buf = pad.repeat(repeats);
+    let pad_slice = pad_buf.chars().take(needed).collect::<String>();
+
+    if pad_start {
+        format!("{}{}", pad_slice, value)
+    } else {
+        format!("{}{}", value, pad_slice)
+    }
+}
+
+fn eval_numeric_op(
+    expr_op: &ExprOp,
+    record: &JsonValue,
+    context: Option<&JsonValue>,
+    out: &JsonValue,
+    base_path: &str,
+) -> Result<EvalValue, TransformError> {
+    let op = expr_op.op.as_str();
+    let args = &expr_op.args;
+
+    let requires_exact_two = matches!(op, "-" | "/");
+    if requires_exact_two && args.len() != 2 {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "expr.args must contain exactly two items",
+        )
+        .with_path(format!("{}.args", base_path)));
+    }
+    if !requires_exact_two && args.len() < 2 {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "expr.args must contain at least two items",
+        )
+        .with_path(format!("{}.args", base_path)));
+    }
+
+    let mut result: f64 = 0.0;
+    for (index, arg) in args.iter().enumerate() {
+        let arg_path = format!("{}.args[{}]", base_path, index);
+        let value = match eval_arg_value(arg, record, context, out, &arg_path)? {
+            None => return Ok(EvalValue::Missing),
+            Some(value) => value,
+        };
+        if value.is_null() {
+            return Err(TransformError::new(
+                TransformErrorKind::ExprError,
+                "expr arg must not be null",
+            )
+            .with_path(arg_path));
+        }
+        let number = value_to_number(&value, &arg_path, "operand must be a number")?;
+        if index == 0 {
+            result = number;
+        } else {
+            result = match op {
+                "+" => result + number,
+                "-" => result - number,
+                "*" => result * number,
+                "/" => result / number,
+                _ => result,
+            };
+        }
+    }
+
+    Ok(EvalValue::Value(json_number_from_f64(result, base_path)?))
+}
+
+fn eval_round(
+    args: &[Expr],
+    record: &JsonValue,
+    context: Option<&JsonValue>,
+    out: &JsonValue,
+    base_path: &str,
+) -> Result<EvalValue, TransformError> {
+    if !(1..=2).contains(&args.len()) {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "expr.args must contain one or two items",
+        )
+        .with_path(format!("{}.args", base_path)));
+    }
+
+    let value_path = format!("{}.args[0]", base_path);
+    let value = match eval_arg_value(&args[0], record, context, out, &value_path)? {
+        None => return Ok(EvalValue::Missing),
+        Some(value) => value,
+    };
+    if value.is_null() {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "expr arg must not be null",
+        )
+        .with_path(value_path));
+    }
+    let number = value_to_number(&value, &value_path, "operand must be a number")?;
+
+    let scale = if args.len() == 2 {
+        let scale_path = format!("{}.args[1]", base_path);
+        let scale_value = match eval_arg_value(&args[1], record, context, out, &scale_path)? {
+            None => return Ok(EvalValue::Missing),
+            Some(value) => value,
+        };
+        if scale_value.is_null() {
+            return Err(TransformError::new(
+                TransformErrorKind::ExprError,
+                "expr arg must not be null",
+            )
+            .with_path(scale_path));
+        }
+        let scale = value_to_i64(
+            &scale_value,
+            &scale_path,
+            "scale must be a non-negative integer",
+        )?;
+        if scale < 0 {
+            return Err(TransformError::new(
+                TransformErrorKind::ExprError,
+                "scale must be a non-negative integer",
+            )
+            .with_path(scale_path));
+        }
+        if scale > 308 {
+            return Err(TransformError::new(
+                TransformErrorKind::ExprError,
+                "scale is too large",
+            )
+            .with_path(scale_path));
+        }
+        scale as i32
+    } else {
+        0
+    };
+
+    let rounded = if scale == 0 {
+        number.round()
+    } else {
+        let factor = 10f64.powi(scale);
+        (number * factor).round() / factor
+    };
+
+    Ok(EvalValue::Value(json_number_from_f64(rounded, base_path)?))
+}
+
+fn eval_to_base(
+    args: &[Expr],
+    record: &JsonValue,
+    context: Option<&JsonValue>,
+    out: &JsonValue,
+    base_path: &str,
+) -> Result<EvalValue, TransformError> {
+    if args.len() != 2 {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "expr.args must contain exactly two items",
+        )
+        .with_path(format!("{}.args", base_path)));
+    }
+
+    let value_path = format!("{}.args[0]", base_path);
+    let base_path_arg = format!("{}.args[1]", base_path);
+    let value = match eval_arg_value(&args[0], record, context, out, &value_path)? {
+        None => return Ok(EvalValue::Missing),
+        Some(value) => value,
+    };
+    let base_value = match eval_arg_value(&args[1], record, context, out, &base_path_arg)? {
+        None => return Ok(EvalValue::Missing),
+        Some(value) => value,
+    };
+    if value.is_null() {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "expr arg must not be null",
+        )
+        .with_path(value_path));
+    }
+    if base_value.is_null() {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "expr arg must not be null",
+        )
+        .with_path(base_path_arg));
+    }
+
+    let number = value_to_i64(&value, &value_path, "value must be an integer")?;
+    let base = value_to_i64(&base_value, &base_path_arg, "base must be an integer")?;
+    if !(2..=36).contains(&base) {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "base must be between 2 and 36",
+        )
+        .with_path(base_path_arg));
+    }
+
+    let formatted = to_radix_string(number, base as u32, &value_path)?;
+    Ok(EvalValue::Value(JsonValue::String(formatted)))
+}
+
+fn eval_date_format(
+    args: &[Expr],
+    record: &JsonValue,
+    context: Option<&JsonValue>,
+    out: &JsonValue,
+    base_path: &str,
+) -> Result<EvalValue, TransformError> {
+    if !(2..=4).contains(&args.len()) {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "expr.args must contain two to four items",
+        )
+        .with_path(format!("{}.args", base_path)));
+    }
+
+    let value_path = format!("{}.args[0]", base_path);
+    let output_format_path = format!("{}.args[1]", base_path);
+    let value = match eval_arg_string(&args[0], record, context, out, &value_path)? {
+        None => return Ok(EvalValue::Missing),
+        Some(value) => value,
+    };
+    let output_format = match eval_arg_string(&args[1], record, context, out, &output_format_path)?
+    {
+        None => return Ok(EvalValue::Missing),
+        Some(value) => value,
+    };
+
+    let mut input_formats: Option<Vec<String>> = None;
+    let mut timezone: Option<FixedOffset> = None;
+
+    if args.len() >= 3 {
+        let input_path = format!("{}.args[2]", base_path);
+        let input_value = match eval_arg_value(&args[2], record, context, out, &input_path)? {
+            None => return Ok(EvalValue::Missing),
+            Some(value) => value,
+        };
+        if input_value.is_null() {
+            return Err(TransformError::new(
+                TransformErrorKind::ExprError,
+                "expr arg must not be null",
+            )
+            .with_path(input_path));
+        }
+
+        if let Some(value) = input_value.as_str() {
+            if looks_like_timezone(value) {
+                timezone = Some(parse_timezone(value, &input_path)?);
+            } else {
+                input_formats = Some(parse_format_list(&input_value, &input_path)?);
+            }
+        } else {
+            input_formats = Some(parse_format_list(&input_value, &input_path)?);
+        }
+    }
+
+    if args.len() == 4 {
+        let tz_path = format!("{}.args[3]", base_path);
+        let tz_value = match eval_arg_string(&args[3], record, context, out, &tz_path)? {
+            None => return Ok(EvalValue::Missing),
+            Some(value) => value,
+        };
+        timezone = Some(parse_timezone(&tz_value, &tz_path)?);
+    }
+
+    let dt = parse_datetime(&value, input_formats.as_deref(), timezone, &value_path)?;
+    let dt = match timezone {
+        Some(offset) => dt.with_timezone(&offset),
+        None => dt,
+    };
+    let formatted = dt.format(&output_format).to_string();
+    Ok(EvalValue::Value(JsonValue::String(formatted)))
+}
+
+fn eval_to_unixtime(
+    args: &[Expr],
+    record: &JsonValue,
+    context: Option<&JsonValue>,
+    out: &JsonValue,
+    base_path: &str,
+) -> Result<EvalValue, TransformError> {
+    if !(1..=3).contains(&args.len()) {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "expr.args must contain one to three items",
+        )
+        .with_path(format!("{}.args", base_path)));
+    }
+
+    let value_path = format!("{}.args[0]", base_path);
+    let value = match eval_arg_string(&args[0], record, context, out, &value_path)? {
+        None => return Ok(EvalValue::Missing),
+        Some(value) => value,
+    };
+
+    let mut unit = "s".to_string();
+    let mut timezone: Option<FixedOffset> = None;
+
+    if args.len() >= 2 {
+        let arg_path = format!("{}.args[1]", base_path);
+        let arg_value = match eval_arg_string(&args[1], record, context, out, &arg_path)? {
+            None => return Ok(EvalValue::Missing),
+            Some(value) => value,
+        };
+        if args.len() == 3 {
+            if arg_value != "s" && arg_value != "ms" {
+                return Err(TransformError::new(
+                    TransformErrorKind::ExprError,
+                    "unit must be s or ms",
+                )
+                .with_path(arg_path));
+            }
+            unit = arg_value;
+        } else if arg_value == "s" || arg_value == "ms" {
+            unit = arg_value;
+        } else if looks_like_timezone(&arg_value) {
+            timezone = Some(parse_timezone(&arg_value, &arg_path)?);
+        } else {
+            return Err(TransformError::new(
+                TransformErrorKind::ExprError,
+                "unit must be s or ms",
+            )
+            .with_path(arg_path));
+        }
+    }
+
+    if args.len() == 3 {
+        let tz_path = format!("{}.args[2]", base_path);
+        let tz_value = match eval_arg_string(&args[2], record, context, out, &tz_path)? {
+            None => return Ok(EvalValue::Missing),
+            Some(value) => value,
+        };
+        timezone = Some(parse_timezone(&tz_value, &tz_path)?);
+    }
+
+    let dt = parse_datetime(&value, None, timezone, &value_path)?;
+    let dt = match timezone {
+        Some(offset) => dt.with_timezone(&offset),
+        None => dt,
+    };
+    let timestamp = if unit == "ms" {
+        dt.timestamp_millis()
+    } else {
+        dt.timestamp()
+    };
+
+    Ok(EvalValue::Value(JsonValue::Number(timestamp.into())))
 }
 
 fn eval_lookup(
@@ -911,8 +1508,8 @@ fn compare_numbers<F>(
 where
     F: FnOnce(f64, f64) -> bool,
 {
-    let left_value = value_to_number(left, left_path)?;
-    let right_value = value_to_number(right, right_path)?;
+    let left_value = value_to_number(left, left_path, "comparison operand must be a number")?;
+    let right_value = value_to_number(right, right_path, "comparison operand must be a number")?;
     Ok(compare(left_value, right_value))
 }
 
@@ -929,6 +1526,256 @@ fn match_regex(
             .with_path(right_path)
     })?;
     Ok(regex.is_match(&value))
+}
+
+const DEFAULT_DATE_FORMATS_WITH_TZ: [&str; 8] = [
+    "%Y-%m-%dT%H:%M:%S%:z",
+    "%Y-%m-%d %H:%M:%S%:z",
+    "%Y-%m-%dT%H:%M:%S%.f%:z",
+    "%Y-%m-%d %H:%M:%S%.f%:z",
+    "%Y-%m-%dT%H:%M:%S%z",
+    "%Y-%m-%d %H:%M:%S%z",
+    "%Y/%m/%d %H:%M:%S%:z",
+    "%Y/%m/%d %H:%M:%S%z",
+];
+
+const DEFAULT_DATE_FORMATS: [&str; 12] = [
+    "%Y-%m-%d",
+    "%Y/%m/%d",
+    "%Y%m%d",
+    "%Y-%m-%d %H:%M",
+    "%Y/%m/%d %H:%M",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y/%m/%d %H:%M:%S",
+    "%Y-%m-%dT%H:%M",
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%dT%H:%M:%S%.f",
+    "%Y-%m-%d %H:%M:%S%.f",
+    "%Y/%m/%d %H:%M:%S%.f",
+];
+
+fn parse_format_list(value: &JsonValue, path: &str) -> Result<Vec<String>, TransformError> {
+    match value {
+        JsonValue::String(s) => {
+            if s.is_empty() {
+                Err(TransformError::new(
+                    TransformErrorKind::ExprError,
+                    "input_format must not be empty",
+                )
+                .with_path(path))
+            } else {
+                Ok(vec![s.clone()])
+            }
+        }
+        JsonValue::Array(items) => {
+            if items.is_empty() {
+                return Err(TransformError::new(
+                    TransformErrorKind::ExprError,
+                    "input_format must not be empty",
+                )
+                .with_path(path));
+            }
+            let mut formats = Vec::with_capacity(items.len());
+            for (index, item) in items.iter().enumerate() {
+                let item_path = format!("{}[{}]", path, index);
+                let value = match item.as_str() {
+                    Some(value) => value,
+                    None => {
+                        return Err(TransformError::new(
+                            TransformErrorKind::ExprError,
+                            "input_format must be a string or array of strings",
+                        )
+                        .with_path(item_path))
+                    }
+                };
+                if value.is_empty() {
+                    return Err(TransformError::new(
+                        TransformErrorKind::ExprError,
+                        "input_format must not be empty",
+                    )
+                    .with_path(item_path));
+                }
+                formats.push(value.to_string());
+            }
+            Ok(formats)
+        }
+        _ => Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "input_format must be a string or array of strings",
+        )
+        .with_path(path)),
+    }
+}
+
+fn parse_datetime(
+    value: &str,
+    formats: Option<&[String]>,
+    timezone: Option<FixedOffset>,
+    path: &str,
+) -> Result<DateTime<FixedOffset>, TransformError> {
+    if let Some(formats) = formats {
+        return parse_datetime_with_formats(value, formats, timezone, path);
+    }
+
+    if let Ok(dt) = DateTime::parse_from_rfc3339(value) {
+        return Ok(dt);
+    }
+    if let Ok(dt) = DateTime::parse_from_rfc2822(value) {
+        return Ok(dt);
+    }
+
+    for format in DEFAULT_DATE_FORMATS_WITH_TZ {
+        if let Ok(dt) = DateTime::parse_from_str(value, format) {
+            return Ok(dt);
+        }
+    }
+
+    parse_datetime_with_formats(
+        value,
+        &DEFAULT_DATE_FORMATS.iter().map(|f| f.to_string()).collect::<Vec<_>>(),
+        timezone,
+        path,
+    )
+}
+
+fn parse_datetime_with_formats(
+    value: &str,
+    formats: &[String],
+    timezone: Option<FixedOffset>,
+    path: &str,
+) -> Result<DateTime<FixedOffset>, TransformError> {
+    for format in formats {
+        if let Ok(dt) = DateTime::parse_from_str(value, format) {
+            return Ok(dt);
+        }
+        if let Ok(naive) = NaiveDateTime::parse_from_str(value, format) {
+            return apply_timezone(naive, timezone, path);
+        }
+        if let Ok(date) = NaiveDate::parse_from_str(value, format) {
+            let naive = date
+                .and_hms_opt(0, 0, 0)
+                .ok_or_else(|| expr_type_error("date is invalid", path))?;
+            return apply_timezone(naive, timezone, path);
+        }
+    }
+
+    Err(TransformError::new(
+        TransformErrorKind::ExprError,
+        "date format is invalid",
+    )
+    .with_path(path))
+}
+
+fn apply_timezone(
+    naive: NaiveDateTime,
+    timezone: Option<FixedOffset>,
+    path: &str,
+) -> Result<DateTime<FixedOffset>, TransformError> {
+    let offset = timezone.unwrap_or_else(|| FixedOffset::east_opt(0).unwrap());
+    offset
+        .from_local_datetime(&naive)
+        .single()
+        .ok_or_else(|| expr_type_error("date is invalid", path))
+}
+
+fn looks_like_timezone(value: &str) -> bool {
+    if value.eq_ignore_ascii_case("utc") || value == "Z" {
+        return true;
+    }
+    matches!(value.chars().next(), Some('+') | Some('-'))
+}
+
+fn parse_timezone(value: &str, path: &str) -> Result<FixedOffset, TransformError> {
+    if value.eq_ignore_ascii_case("utc") || value == "Z" {
+        return FixedOffset::east_opt(0).ok_or_else(|| {
+            TransformError::new(
+                TransformErrorKind::ExprError,
+                "timezone must be UTC or an offset like +09:00",
+            )
+            .with_path(path)
+        });
+    }
+
+    let (sign, rest) = match value.chars().next() {
+        Some('+') => (1i32, &value[1..]),
+        Some('-') => (-1i32, &value[1..]),
+        _ => {
+            return Err(TransformError::new(
+                TransformErrorKind::ExprError,
+                "timezone must be UTC or an offset like +09:00",
+            )
+            .with_path(path))
+        }
+    };
+
+    let (hours, minutes) = if let Some((h, m)) = rest.split_once(':') {
+        let hours = h.parse::<i32>().ok();
+        let minutes = m.parse::<i32>().ok();
+        match (hours, minutes) {
+            (Some(hours), Some(minutes)) => (hours, minutes),
+            _ => {
+                return Err(TransformError::new(
+                    TransformErrorKind::ExprError,
+                    "timezone must be UTC or an offset like +09:00",
+                )
+                .with_path(path))
+            }
+        }
+    } else {
+        match rest.len() {
+            2 => {
+                let hours = rest.parse::<i32>().ok();
+                match hours {
+                    Some(hours) => (hours, 0),
+                    None => {
+                        return Err(TransformError::new(
+                            TransformErrorKind::ExprError,
+                            "timezone must be UTC or an offset like +09:00",
+                        )
+                        .with_path(path))
+                    }
+                }
+            }
+            4 => {
+                let hours = rest[..2].parse::<i32>().ok();
+                let minutes = rest[2..].parse::<i32>().ok();
+                match (hours, minutes) {
+                    (Some(hours), Some(minutes)) => (hours, minutes),
+                    _ => {
+                        return Err(TransformError::new(
+                            TransformErrorKind::ExprError,
+                            "timezone must be UTC or an offset like +09:00",
+                        )
+                        .with_path(path))
+                    }
+                }
+            }
+            _ => {
+                return Err(TransformError::new(
+                    TransformErrorKind::ExprError,
+                    "timezone must be UTC or an offset like +09:00",
+                )
+                .with_path(path))
+            }
+        }
+    };
+
+    if !(0..=23).contains(&hours) || !(0..=59).contains(&minutes) {
+        return Err(TransformError::new(
+            TransformErrorKind::ExprError,
+            "timezone must be UTC or an offset like +09:00",
+        )
+        .with_path(path));
+    }
+
+    let offset_seconds = sign * (hours * 3600 + minutes * 60);
+    FixedOffset::east_opt(offset_seconds).ok_or_else(|| {
+        TransformError::new(
+            TransformErrorKind::ExprError,
+            "timezone must be UTC or an offset like +09:00",
+        )
+        .with_path(path)
+    })
 }
 
 fn value_to_string(value: &JsonValue, path: &str) -> Result<String, TransformError> {
@@ -962,19 +1809,91 @@ fn value_as_bool(value: &JsonValue, path: &str) -> Result<bool, TransformError> 
     }
 }
 
-fn value_to_number(value: &JsonValue, path: &str) -> Result<f64, TransformError> {
+fn value_to_number(value: &JsonValue, path: &str, message: &str) -> Result<f64, TransformError> {
     match value {
         JsonValue::Number(n) => n
             .as_f64()
             .filter(|f| f.is_finite())
-            .ok_or_else(|| expr_type_error("comparison operand must be a number", path)),
+            .ok_or_else(|| expr_type_error(message, path)),
         JsonValue::String(s) => s
             .parse::<f64>()
             .ok()
             .filter(|f| f.is_finite())
-            .ok_or_else(|| expr_type_error("comparison operand must be a number", path)),
-        _ => Err(expr_type_error("comparison operand must be a number", path)),
+            .ok_or_else(|| expr_type_error(message, path)),
+        _ => Err(expr_type_error(message, path)),
     }
+}
+
+fn value_to_i64(value: &JsonValue, path: &str, message: &str) -> Result<i64, TransformError> {
+    match value {
+        JsonValue::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Ok(i)
+            } else if let Some(u) = n.as_u64() {
+                i64::try_from(u).map_err(|_| expr_type_error(message, path))
+            } else if let Some(f) = n.as_f64() {
+                if f.is_finite() && (f.fract()).abs() < f64::EPSILON {
+                    let value = f as i64;
+                    if (value as f64 - f).abs() < f64::EPSILON {
+                        Ok(value)
+                    } else {
+                        Err(expr_type_error(message, path))
+                    }
+                } else {
+                    Err(expr_type_error(message, path))
+                }
+            } else {
+                Err(expr_type_error(message, path))
+            }
+        }
+        JsonValue::String(s) => s
+            .parse::<i64>()
+            .map_err(|_| expr_type_error(message, path)),
+        _ => Err(expr_type_error(message, path)),
+    }
+}
+
+fn json_number_from_f64(value: f64, path: &str) -> Result<JsonValue, TransformError> {
+    if !value.is_finite() {
+        return Err(expr_type_error("number result is not finite", path));
+    }
+    if (value.fract()).abs() < f64::EPSILON {
+        let as_i64 = value as i64;
+        if (as_i64 as f64 - value).abs() < f64::EPSILON {
+            return Ok(JsonValue::Number(as_i64.into()));
+        }
+    }
+    serde_json::Number::from_f64(value)
+        .map(JsonValue::Number)
+        .ok_or_else(|| expr_type_error("number result is not finite", path))
+}
+
+fn to_radix_string(value: i64, base: u32, path: &str) -> Result<String, TransformError> {
+    let digits = b"0123456789abcdefghijklmnopqrstuvwxyz";
+    if base < 2 || base > 36 {
+        return Err(expr_type_error("base must be between 2 and 36", path));
+    }
+
+    if value == 0 {
+        return Ok("0".to_string());
+    }
+
+    let is_negative = value < 0;
+    let mut n = value.checked_abs().ok_or_else(|| {
+        expr_type_error("value is out of range for base conversion", path)
+    })? as u64;
+
+    let mut buf = Vec::new();
+    while n > 0 {
+        let idx = (n % base as u64) as usize;
+        buf.push(digits[idx] as char);
+        n /= base as u64;
+    }
+    if is_negative {
+        buf.push('-');
+    }
+    buf.reverse();
+    Ok(buf.iter().collect())
 }
 
 fn value_to_string_optional(value: &JsonValue) -> Option<String> {

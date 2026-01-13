@@ -1,0 +1,94 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "replace_literal"
+    expr:
+      op: "replace"
+      args:
+        - { ref: "input.text" }
+        - "abc"
+        - "XYZ"
+  - target: "replace_regex_all"
+    expr:
+      op: "replace"
+      args:
+        - { ref: "input.regex_text" }
+        - "\\d"
+        - "_"
+        - "regex_all"
+  - target: "split_csv"
+    expr:
+      op: "split"
+      args:
+        - { ref: "input.csv" }
+        - ","
+  - target: "pad_start"
+    expr:
+      op: "pad_start"
+      args:
+        - { ref: "input.pad" }
+        - 3
+        - "0"
+  - target: "pad_end"
+    expr:
+      op: "pad_end"
+      args:
+        - { ref: "input.pad" }
+        - 4
+        - "_"
+  - target: "add"
+    expr:
+      op: "+"
+      args:
+        - { ref: "input.num_a" }
+        - { ref: "input.num_b" }
+        - { ref: "input.num_c" }
+  - target: "sub"
+    expr:
+      op: "-"
+      args: [10, 4]
+  - target: "mul"
+    expr:
+      op: "round"
+      args:
+        - op: "*"
+          args:
+            - { op: "-", args: [ { ref: "input.num_a" }, 32 ] }
+            - { op: "/", args: [ 5, 9 ] }
+        - 2
+  - target: "div"
+    expr:
+      op: "/"
+      args: [9, 2]
+  - target: "to_base"
+    expr:
+      op: "to_base"
+      args:
+        - { ref: "input.base_value" }
+        - 16
+  - target: "date_format_default"
+    expr:
+      op: "date_format"
+      args:
+        - { ref: "input.date_simple" }
+        - "%Y/%m/%d"
+  - target: "date_format_tz"
+    expr:
+      op: "date_format"
+      args:
+        - { ref: "input.date_tz" }
+        - "%Y-%m-%d %H:%M:%S %:z"
+        - "UTC"
+  - target: "unix_s"
+    expr:
+      op: "to_unixtime"
+      args:
+        - { ref: "input.unix_s" }
+  - target: "unix_ms"
+    expr:
+      op: "to_unixtime"
+      args:
+        - { ref: "input.unix_ms" }
+        - "ms"

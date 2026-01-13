@@ -165,8 +165,20 @@ expr:
 | `trim` | `1 expr` | 文字列の前後空白を削除。`missing` 伝播、`null` はエラー。 | `args: [ { ref: "input.name" } ]`<br>`{"name":"  Ada "} -> "Ada"` |
 | `lowercase` | `1 expr` | 文字列を小文字化。 | `args: [ { ref: "input.code" } ]`<br>`{"code":"AbC"} -> "abc"` |
 | `uppercase` | `1 expr` | 文字列を大文字化。 | `args: [ { ref: "input.code" } ]`<br>`{"code":"abC"} -> "ABC"` |
+| `replace` | `3-4 expr` | 文字列置換。`mode` 省略時は先頭一致のみ。`mode`: `all`/`regex`/`regex_all`。 | `args: [ { ref: "input.text" }, "abc", "XYZ" ]`<br>`{"text":"abc-123-abc"} -> "XYZ-123-abc"` |
+| `split` | `2 expr` | 区切り文字で分割して配列化。 | `args: [ { ref: "input.tags" }, "," ]`<br>`{"tags":"a,b"} -> ["a","b"]` |
+| `pad_start` | `2-3 expr` | 指定長まで先頭を埋める。`pad` 省略時は空白。 | `args: [ { ref: "input.code" }, 5, "0" ]`<br>`{"code":"42"} -> "00042"` |
+| `pad_end` | `2-3 expr` | 指定長まで末尾を埋める。`pad` 省略時は空白。 | `args: [ "x", 3, "_" ]`<br>`"x" -> "x__"` |
 | `lookup` | `collection, key_path, match_value, output_path?` | 配列を検索し一致した要素を **配列** で返す（0件なら `missing`）。 | `args: [ { ref: "context.users" }, "id", { ref: "input.user_id" }, "name" ]`<br>`users=[{"id":1,"name":"Ada"}], user_id=1 -> ["Ada"]` |
 | `lookup_first` | `collection, key_path, match_value, output_path?` | `lookup` の先頭要素のみ返す。 | `args: [ { ref: "context.users" }, "id", { ref: "input.user_id" }, "name" ]`<br>`users=[{"id":1,"name":"Ada"}], user_id=1 -> "Ada"` |
+| `+` | `>=2 expr` | 数値の加算。 | `args: [ 1, "2", 3 ]`<br>`-> 6` |
+| `-` | `2 expr` | 数値の減算。 | `args: [ 10, 4 ]`<br>`-> 6` |
+| `*` | `>=2 expr` | 数値の乗算。 | `args: [ 2, 3 ]`<br>`-> 6` |
+| `/` | `2 expr` | 数値の除算。 | `args: [ 9, 2 ]`<br>`-> 4.5` |
+| `round` | `1-2 expr` | 数値を丸め（四捨五入）。`scale` は小数桁数。 | `args: [ 12.345, 2 ]`<br>`-> 12.35` |
+| `to_base` | `2 expr` | 整数を指定進数の文字列に変換（2-36）。 | `args: [ 255, 16 ]`<br>`-> "ff"` |
+| `date_format` | `2-4 expr` | 日時文字列をフォーマット変換。`input_format` は文字列 or 配列、`timezone` は `UTC`/`+09:00` 形式。 | `args: [ { ref: "input.date" }, "%Y/%m/%d" ]`<br>`{"date":"2024-01-02"} -> "2024/01/02"` |
+| `to_unixtime` | `1-3 expr` | 日時文字列を unix time へ。`unit` は `s`/`ms`。 | `args: [ "1970-01-01T00:00:01Z" ]`<br>`-> 1` |
 | `and` | `>=2 expr` | boolean AND。`false` で短絡。`missing` が残れば `missing`。 | `args: [ { op: ">=", args: [ { ref: "input.age" }, 18 ] }, { ref: "input.active" } ]`<br>`{"age":20,"active":true} -> true` |
 | `or` | `>=2 expr` | boolean OR。`true` で短絡。`missing` が残れば `missing`。 | `args: [ { ref: "input.is_admin" }, { ref: "input.is_owner" } ]`<br>`{"is_admin":false,"is_owner":true} -> true` |
 | `not` | `1 expr` | boolean NOT。 | `args: [ { ref: "input.disabled" } ]`<br>`{"disabled": false} -> true` |
@@ -188,12 +200,29 @@ expr:
 ### op 仕様の詳細
 - `concat`: いずれかの引数が `missing` なら `missing`。`null` はエラー。
 - `trim/lowercase/uppercase/to_string`: 引数が `missing` なら `missing`。`null` はエラー。
+- `replace/split/pad_start/pad_end`:
+  - 引数が `missing` なら `missing`。`null` はエラー。
+  - `replace` の `mode`: `all` は全置換、`regex`/`regex_all` は正規表現置換。
+  - `split` の区切り文字は空文字不可。
+  - `pad_start/pad_end` の長さは非負整数、`pad` 省略時は空白。
 - `lookup/lookup_first`:
   - `collection` は配列である必要あり。`null` や配列以外はエラー。
   - `key_path` / `output_path` は **非空の文字列リテラルのみ**。
   - `match_value` は `null` 不可。
   - 一致判定は「両方を文字列化して比較」。
   - `lookup` は一致結果の配列を返す（0件なら `missing`）。
+- `+/-/*//to_base`:
+  - 数値または数値文字列のみ。`missing` は `missing`。`null` はエラー。
+  - `/` の結果が非有限値になる場合はエラー。
+  - `to_base` は整数のみ、`base` は 2-36。
+- `round`:
+  - `scale` は非負整数（省略時は 0）。
+  - 丸めは 0.5 を絶対値方向に丸める。
+- `date_format/to_unixtime`:
+  - 入力は文字列のみ。`missing` は `missing`。`null` はエラー。
+  - `date_format` の `input_format` は文字列または配列（chrono の `strftime` 形式）。
+  - `timezone` は `UTC` または `+09:00` 形式。未指定時は UTC。
+  - 自動パースは ISO/RFC と代表的な `YYYY-MM-DD`/`YYYY/MM/DD` 形式を吸収。
 - `and/or`:
   - 2 個以上の boolean を取り、`false/true` で短絡評価。
   - `missing` が残る場合は `missing`。

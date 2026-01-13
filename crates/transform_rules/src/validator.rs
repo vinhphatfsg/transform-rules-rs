@@ -262,8 +262,25 @@ fn bool_expr_kind(expr: &Expr) -> BoolExprKind {
         }
         Expr::Ref(_) => BoolExprKind::Maybe,
         Expr::Op(expr_op) => match expr_op.op.as_str() {
-            "concat" | "to_string" | "trim" | "lowercase" | "uppercase" | "lookup"
-            | "lookup_first" => BoolExprKind::NotBool,
+            "concat"
+            | "to_string"
+            | "trim"
+            | "lowercase"
+            | "uppercase"
+            | "replace"
+            | "split"
+            | "pad_start"
+            | "pad_end"
+            | "lookup"
+            | "lookup_first"
+            | "+"
+            | "-"
+            | "*"
+            | "/"
+            | "round"
+            | "to_base"
+            | "date_format"
+            | "to_unixtime" => BoolExprKind::NotBool,
             "and" | "or" | "not" => BoolExprKind::Bool,
             "==" | "!=" | "<" | "<=" | ">" | ">=" | "~=" => BoolExprKind::Bool,
             "coalesce" => {
@@ -373,8 +390,80 @@ fn validate_op(
                 );
             }
         }
+        "replace" => {
+            if !(3..=4).contains(&expr_op.args.len()) {
+                ctx.push(
+                    ErrorCode::InvalidArgs,
+                    "expr.args must contain three or four items",
+                    format!("{}.args", base_path),
+                );
+            }
+        }
+        "split" => {
+            if expr_op.args.len() != 2 {
+                ctx.push(
+                    ErrorCode::InvalidArgs,
+                    "expr.args must contain exactly two items",
+                    format!("{}.args", base_path),
+                );
+            }
+        }
+        "pad_start" | "pad_end" => {
+            if !(2..=3).contains(&expr_op.args.len()) {
+                ctx.push(
+                    ErrorCode::InvalidArgs,
+                    "expr.args must contain two or three items",
+                    format!("{}.args", base_path),
+                );
+            }
+        }
         "lookup" | "lookup_first" => {
             validate_lookup_args(expr_op, base_path, ctx);
+        }
+        "+" | "*" => {
+            if expr_op.args.len() < 2 {
+                ctx.push(
+                    ErrorCode::InvalidArgs,
+                    "expr.args must contain at least two items",
+                    format!("{}.args", base_path),
+                );
+            }
+        }
+        "-" | "/" | "to_base" => {
+            if expr_op.args.len() != 2 {
+                ctx.push(
+                    ErrorCode::InvalidArgs,
+                    "expr.args must contain exactly two items",
+                    format!("{}.args", base_path),
+                );
+            }
+        }
+        "round" => {
+            if !(1..=2).contains(&expr_op.args.len()) {
+                ctx.push(
+                    ErrorCode::InvalidArgs,
+                    "expr.args must contain one or two items",
+                    format!("{}.args", base_path),
+                );
+            }
+        }
+        "date_format" => {
+            if !(2..=4).contains(&expr_op.args.len()) {
+                ctx.push(
+                    ErrorCode::InvalidArgs,
+                    "expr.args must contain two to four items",
+                    format!("{}.args", base_path),
+                );
+            }
+        }
+        "to_unixtime" => {
+            if !(1..=3).contains(&expr_op.args.len()) {
+                ctx.push(
+                    ErrorCode::InvalidArgs,
+                    "expr.args must contain one to three items",
+                    format!("{}.args", base_path),
+                );
+            }
         }
         "and" | "or" => {
             if expr_op.args.len() < 2 {
@@ -463,8 +552,20 @@ fn is_valid_op(value: &str) -> bool {
             | "trim"
             | "lowercase"
             | "uppercase"
+            | "replace"
+            | "split"
+            | "pad_start"
+            | "pad_end"
             | "lookup"
             | "lookup_first"
+            | "+"
+            | "-"
+            | "*"
+            | "/"
+            | "round"
+            | "to_base"
+            | "date_format"
+            | "to_unixtime"
             | "and"
             | "or"
             | "not"

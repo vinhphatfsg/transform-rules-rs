@@ -5,7 +5,7 @@ A small Rust library and CLI to transform CSV/JSON data using YAML rules.
 ## Features
 - Rule-based mapping from CSV/JSON to JSON.
 - Static validation for rule files.
-- Expressions (concat/coalesce/trim/lowercase/uppercase/to_string).
+- Expressions (string ops like replace/split/pad, numeric ops + - * / round, date_format/to_unixtime).
 - Comparisons and regex matches (==/!=/<//<=/>/>=/~=).
 - Logical ops (and/or/not).
 - lookup/lookup_first for array lookups from context.

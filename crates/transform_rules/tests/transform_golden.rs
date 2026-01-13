@@ -174,6 +174,17 @@ fn t11_when_logical_ops() {
     assert_eq!(output, expected);
 }
 
+#[test]
+fn t13_expr_extended() {
+    let base = fixtures_dir().join("t13_expr_extended");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_json(&base.join("expected.json"));
+    let output = transform(&rule, &input, None).expect("transform failed");
+    assert_eq!(output, expected);
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct ExpectedTransformError {
     kind: String,

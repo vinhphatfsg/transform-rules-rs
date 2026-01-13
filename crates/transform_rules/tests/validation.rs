@@ -72,6 +72,7 @@ fn valid_rules_should_pass_validation() {
         "t09_when_mapping",
         "t10_when_compare",
         "t11_when_logical_ops",
+        "t13_expr_extended",
     ];
 
     for case in cases {

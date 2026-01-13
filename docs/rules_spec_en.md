@@ -165,8 +165,20 @@ Forms:
 | `trim` | `1 expr` | Trim leading/trailing whitespace. | `args: [ { ref: "input.name" } ]`<br>`{"name":"  Ada "} -> "Ada"` |
 | `lowercase` | `1 expr` | Lowercase a string. | `args: [ { ref: "input.code" } ]`<br>`{"code":"AbC"} -> "abc"` |
 | `uppercase` | `1 expr` | Uppercase a string. | `args: [ { ref: "input.code" } ]`<br>`{"code":"abC"} -> "ABC"` |
+| `replace` | `3-4 expr` | Replace text. Default replaces first match. `mode`: `all`/`regex`/`regex_all`. | `args: [ { ref: "input.text" }, "abc", "XYZ" ]`<br>`{"text":"abc-123-abc"} -> "XYZ-123-abc"` |
+| `split` | `2 expr` | Split a string into an array by delimiter. | `args: [ { ref: "input.tags" }, "," ]`<br>`{"tags":"a,b"} -> ["a","b"]` |
+| `pad_start` | `2-3 expr` | Pad the start to target length (default pad is space). | `args: [ { ref: "input.code" }, 5, "0" ]`<br>`{"code":"42"} -> "00042"` |
+| `pad_end` | `2-3 expr` | Pad the end to target length (default pad is space). | `args: [ "x", 3, "_" ]`<br>`"x" -> "x__"` |
 | `lookup` | `collection, key_path, match_value, output_path?` | Filter an array and return all matches as an array. Returns `missing` if none. | `args: [ { ref: "context.users" }, "id", { ref: "input.user_id" }, "name" ]`<br>`users=[{"id":1,"name":"Ada"}], user_id=1 -> ["Ada"]` |
 | `lookup_first` | `collection, key_path, match_value, output_path?` | Same as `lookup`, but returns the first match. | `args: [ { ref: "context.users" }, "id", { ref: "input.user_id" }, "name" ]`<br>`users=[{"id":1,"name":"Ada"}], user_id=1 -> "Ada"` |
+| `+` | `>=2 expr` | Numeric addition. | `args: [ 1, "2", 3 ]`<br>`-> 6` |
+| `-` | `2 expr` | Numeric subtraction. | `args: [ 10, 4 ]`<br>`-> 6` |
+| `*` | `>=2 expr` | Numeric multiplication. | `args: [ 2, 3 ]`<br>`-> 6` |
+| `/` | `2 expr` | Numeric division. | `args: [ 9, 2 ]`<br>`-> 4.5` |
+| `round` | `1-2 expr` | Round a number. `scale` controls decimal places. | `args: [ 12.345, 2 ]`<br>`-> 12.35` |
+| `to_base` | `2 expr` | Convert an integer to a base-N string (2-36). | `args: [ 255, 16 ]`<br>`-> "ff"` |
+| `date_format` | `2-4 expr` | Reformat date strings. `input_format` may be string or array; `timezone` accepts `UTC`/`+09:00`. | `args: [ { ref: "input.date" }, "%Y/%m/%d" ]`<br>`{"date":"2024-01-02"} -> "2024/01/02"` |
+| `to_unixtime` | `1-3 expr` | Convert date strings to unix time. `unit`: `s`/`ms`. | `args: [ "1970-01-01T00:00:01Z" ]`<br>`-> 1` |
 | `and` | `>=2 expr` | Boolean AND with short-circuit. Missing propagates if no decisive false. | `args: [ { op: ">=", args: [ { ref: "input.age" }, 18 ] }, { ref: "input.active" } ]`<br>`{"age":20,"active":true} -> true` |
 | `or` | `>=2 expr` | Boolean OR with short-circuit. Missing propagates if no decisive true. | `args: [ { ref: "input.is_admin" }, { ref: "input.is_owner" } ]`<br>`{"is_admin":false,"is_owner":true} -> true` |
 | `not` | `1 expr` | Boolean NOT. | `args: [ { ref: "input.disabled" } ]`<br>`{"disabled": false} -> true` |
@@ -188,12 +200,29 @@ Forms:
 ### op semantics
 - `concat`: any `missing` -> `missing`. `null` is an error.
 - `trim/lowercase/uppercase/to_string`: `missing` -> `missing`. `null` is an error.
+- `replace/split/pad_start/pad_end`:
+  - `missing` -> `missing`. `null` is an error.
+  - `replace` mode: `all` for replace-all, `regex`/`regex_all` for regex.
+  - `split` delimiter must be non-empty.
+  - `pad_start/pad_end` length must be non-negative; default pad is space.
 - `lookup/lookup_first`:
   - `collection` must be an array. `null` or non-array is an error.
   - `key_path` / `output_path` must be non-empty string literals.
   - `match_value` must not be `null`.
   - matching compares stringified values.
   - `lookup` returns an array; if no matches, returns `missing`.
+- `+/-/*//to_base`:
+  - numbers or numeric strings only. `missing` -> `missing`. `null` is an error.
+  - `/` errors on non-finite results.
+  - `to_base` requires an integer; `base` is 2-36.
+- `round`:
+  - `scale` is a non-negative integer (default 0).
+  - rounding uses half away from zero.
+- `date_format/to_unixtime`:
+  - input must be a string. `missing` -> `missing`. `null` is an error.
+  - `date_format` accepts `input_format` as string or array (chrono strftime).
+  - `timezone` supports `UTC` or offsets like `+09:00` (default UTC).
+  - auto parsing accepts common ISO/RFC and `YYYY-MM-DD`/`YYYY/MM/DD` variants.
 - `and/or`:
   - requires at least two boolean values, with short-circuit.
   - if any operand is `missing` and no decisive value is found, result is `missing`.

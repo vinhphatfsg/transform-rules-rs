@@ -1,0 +1,18 @@
+[
+  {
+    "replace_literal": "XYZ-123-abc",
+    "replace_regex_all": "a_b_c_",
+    "split_csv": ["a", "b", "c"],
+    "pad_start": "007",
+    "pad_end": "7___",
+    "add": 86.1,
+    "sub": 6,
+    "mul": 27,
+    "div": 4.5,
+    "to_base": "ff",
+    "date_format_default": "2024/01/02",
+    "date_format_tz": "2024-01-01 18:04:05 +00:00",
+    "unix_s": 1,
+    "unix_ms": 123
+  }
+]
