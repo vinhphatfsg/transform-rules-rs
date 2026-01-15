@@ -149,13 +149,13 @@ jobs:
              --arg sha_win "$SHA256_x86_64_pc_windows_msvc" \
              '.version = $v |
               .packages[0].identifier = $repo_url + "/releases/download/v" + $v + "/transform-rules-mcp-v" + $v + "-aarch64-apple-darwin.mcpb" |
-              .packages[0].file_sha256 = $sha_arm |
+              .packages[0].fileSha256 = $sha_arm |
               .packages[1].identifier = $repo_url + "/releases/download/v" + $v + "/transform-rules-mcp-v" + $v + "-x86_64-apple-darwin.mcpb" |
-              .packages[1].file_sha256 = $sha_intel |
+              .packages[1].fileSha256 = $sha_intel |
               .packages[2].identifier = $repo_url + "/releases/download/v" + $v + "/transform-rules-mcp-v" + $v + "-x86_64-unknown-linux-gnu.mcpb" |
-              .packages[2].file_sha256 = $sha_linux |
+              .packages[2].fileSha256 = $sha_linux |
               .packages[3].identifier = $repo_url + "/releases/download/v" + $v + "/transform-rules-mcp-v" + $v + "-x86_64-pc-windows-msvc.mcpb" |
-              .packages[3].file_sha256 = $sha_win' \
+              .packages[3].fileSha256 = $sha_win' \
              server.json > server.json.tmp
           mv server.json.tmp server.json
           echo "Updated server.json:"
