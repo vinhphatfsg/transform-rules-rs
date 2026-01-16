@@ -13,3 +13,7 @@ chrono = "0.4"
 
 [dev-dependencies]
 criterion = "0.5"
+
+[[bench]]
+name = "transform_bench"
+harness = false

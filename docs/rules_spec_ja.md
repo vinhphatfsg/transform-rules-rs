@@ -154,6 +154,21 @@ expr:
 - リテラル: string/number/bool/null
 - 参照: `{ ref: "input.user_id" }`
 - オペレーション: `{ op: "<name>", args: [Expr, ...] }`
+- チェーン: `{ chain: [ Expr, { op: "<name>", args: [...] }, ... ] }`
+
+### チェーン（パイプ構文）
+
+`chain` は先頭の式を評価し、以降の `op` に前段の結果を **第1引数として自動注入** します。
+2 個目以降は `{ op: ... }` のみ許可され、`args` は省略可能です。
+
+```yaml
+expr:
+  chain:
+    - { ref: "input.name" }
+    - { op: "trim" }
+    - { op: "replace", args: [ " ", "_" , "all" ] }
+    - { op: "lowercase" }
+```
 
 ## オペレーション一覧（v1）
 
