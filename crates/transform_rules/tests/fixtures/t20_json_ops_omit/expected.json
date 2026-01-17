@@ -1,0 +1,9 @@
+[
+  {
+    "omitted": {
+      "id": 1,
+      "profile": { "name": "Ada", "email": "a@x" },
+      "items": [ { "id": "i1" }, { "id": "i2", "x": 2 } ]
+    }
+  }
+]

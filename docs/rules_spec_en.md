@@ -18,6 +18,10 @@ input:
 output:
   name: "Record"
 
+record_when:
+  op: ">="
+  args: [ { ref: "input.score" }, 10 ]
+
 mappings:
   - target: "user.id"
     source: "id"
@@ -35,6 +39,7 @@ mappings:
 - `input` (required): input format and options
 - `mappings` (required): transformation rules (evaluated in order)
 - `output` (optional): metadata (e.g., DTO name)
+- `record_when` (optional): boolean expression to decide if the record is included
 
 ## Input
 
@@ -74,6 +79,16 @@ input:
 - Default output is a JSON array of records
 - CLI `transform --ndjson` outputs one JSON object per line (streaming)
 - If `records_path` points to an object, a single record is produced
+
+## Record filter (`record_when`)
+
+`record_when` is an optional boolean expression evaluated once per record before any mappings.
+If it evaluates to `false`, the record is skipped (no output).
+If evaluation fails or returns a non-boolean value, the record is skipped and a warning is emitted.
+
+- `record_when` uses the same expression syntax as `when`
+- `record_when` may reference `input.*` and `context.*`
+- `out.*` references are invalid because outputs do not exist yet
 
 ## Mapping
 
@@ -119,6 +134,11 @@ References are namespace + dot path.
 - `context.*`: injected external context
 - `out.*`: output values produced earlier in the same record
 
+### Local refs (array ops only)
+- `item.value`: current element
+- `item.index`: 0-based index
+- `acc.value`: accumulator for reduce/fold
+
 `source` can omit the namespace **only for a single key** (defaults to `input.*`).
 If you need dot paths or array indexes, you must use `input.*` explicitly.
 `expr` refs must always include the namespace.
@@ -154,8 +174,40 @@ Forms:
 - Literal: string/number/bool/null
 - Ref: `{ ref: "input.user_id" }`
 - Op: `{ op: "<name>", args: [Expr, ...] }`
+- Chain: `{ chain: [ Expr, { op: "<name>", args: [...] }, ... ] }`
+
+### Chain (pipe shorthand)
+
+`chain` evaluates the first expression, then injects the previous result as the **first arg** for each subsequent `op`.
+Items after the first must be `{ op: ... }`, and `args` can be omitted.
+
+```yaml
+expr:
+  chain:
+    - { ref: "input.name" }
+    - { op: "trim" }
+    - { op: "replace", args: [ " ", "_", "all" ] }
+    - { op: "lowercase" }
+```
 
 ## Operations (v1)
+
+### Operation categories
+
+- String ops: `concat`, `to_string`, `trim`, `lowercase`, `uppercase`, `replace`, `split`, `pad_start`, `pad_end`
+- JSON ops: `merge`, `deep_merge`, `get`, `pick`, `omit`, `keys`, `values`, `entries`, `object_flatten`, `object_unflatten`
+- Array ops: `map`, `filter`, `flat_map`, `flatten`, `take`, `drop`, `slice`, `chunk`, `zip`, `zip_with`, `unzip`, `group_by`, `key_by`, `partition`, `unique`, `distinct_by`, `sort_by`, `find`, `find_index`, `index_of`, `contains`, `sum`, `avg`, `min`, `max`, `reduce`, `fold`
+- Numeric ops: `+`, `-`, `*`, `/`, `round`, `to_base`, `sum`, `avg`, `min`, `max`
+- Date ops: `date_format`, `to_unixtime`
+- Logical ops: `and`, `or`, `not`
+- Comparison ops: `==`, `!=`, `<`, `<=`, `>`, `>=`, `~=`
+- Type casts: `string`, `int`, `float`, `bool`
+
+### Naming conventions
+
+- `to_*`: conversions (e.g., `to_string`, `to_base`, `to_unixtime`)
+- `*_by`: key-based variants (`group_by`, `key_by`, `distinct_by`, `sort_by`)
+- `object_*`: object-specific structural ops (`object_flatten`, `object_unflatten`)
 
 | op | args | description | usage/example |
 | --- | --- | --- | --- |
@@ -189,6 +241,53 @@ Forms:
 | `>` | `2 expr` | Numeric comparison. | `args: [ { ref: "input.score" }, 90 ]`<br>`{"score": 95} -> true` |
 | `>=` | `2 expr` | Numeric comparison. | `args: [ { ref: "input.score" }, 90 ]`<br>`{"score": 90} -> true` |
 | `~=` | `2 expr` | Regex match (left value against right pattern). | `args: [ { ref: "input.email" }, ".+@example\\.com$" ]`<br>`{"email":"a@example.com"} -> true` |
+
+## JSON Operations (v1)
+
+| op | args | description |
+| --- | --- | --- |
+| `merge` | `obj1, obj2, ...` | Shallow merge (rightmost wins). |
+| `deep_merge` | `obj1, obj2, ...` | Recursive merge for objects; arrays are replaced. |
+| `get` | `obj_or_array, path` | Get value at path; missing if path is absent. |
+| `pick` | `obj, paths` | Keep only selected paths (`paths` is string or array). |
+| `omit` | `obj, paths` | Remove selected paths (`paths` is string or array). |
+| `keys` | `obj` | Array of keys. |
+| `values` | `obj` | Array of values. |
+| `entries` | `obj` | Array of `{key, value}` entries. |
+| `object_flatten` | `obj` | Flatten object keys into path strings. |
+| `object_unflatten` | `obj` | Expand path keys into nested objects. |
+
+## Array Operations (v1)
+
+| op | args | description |
+| --- | --- | --- |
+| `map` | `array, expr` | Transform each element. |
+| `filter` | `array, predicate` | Keep elements matching the predicate. |
+| `flat_map` | `array, expr` | `map` + `flatten(1)`. |
+| `flatten` | `array, depth?` | Flatten to the specified depth. |
+| `take` | `array, count` | Take from head/tail (negative counts from tail). |
+| `drop` | `array, count` | Drop from head/tail (negative counts from tail). |
+| `slice` | `array, start, end?` | Slice range (`end` exclusive, negatives from tail). |
+| `chunk` | `array, size` | Split into fixed-size chunks. |
+| `zip` | `array1, array2, ...` | Zip to the shortest length. |
+| `zip_with` | `array1, array2, ..., expr` | Combine elements with an expression. |
+| `unzip` | `array` | Convert array-of-arrays to column arrays. |
+| `group_by` | `array, key_expr` | Group elements by key. |
+| `key_by` | `array, key_expr` | Map elements by key (last wins). |
+| `partition` | `array, predicate` | Split into `[matched, unmatched]`. |
+| `unique` | `array` | Remove duplicates by equality. |
+| `distinct_by` | `array, key_expr` | Remove duplicates by key. |
+| `sort_by` | `array, key_expr, order?` | Sort by key. |
+| `find` | `array, predicate` | First matching element. |
+| `find_index` | `array, predicate` | Index of first match. |
+| `index_of` | `array, value` | Index of first equal element. |
+| `contains` | `array, value` | Whether the value exists. |
+| `sum` | `array` | Sum of elements. |
+| `avg` | `array` | Average of elements. |
+| `min` | `array` | Minimum value. |
+| `max` | `array` | Maximum value. |
+| `reduce` | `array, expr` | Reduce with accumulator. |
+| `fold` | `array, initial, expr` | Reduce with initial value. |
 
 ## Evaluation rules (notes)
 
@@ -241,6 +340,30 @@ Forms:
 - `~=`:
   - both operands must be strings.
   - invalid regex pattern is an error (Rust regex syntax).
+- JSON ops:
+  - `get`: base `missing`/`null` or absent path returns `missing`.
+  - `get`: path must be a valid non-empty path string.
+  - Object ops (`merge`/`deep_merge`/`pick`/`omit`/`keys`/`values`/`entries`/`object_*`):
+    - `null` is an error; base must be an object.
+  - `merge`/`deep_merge`: missing args are skipped; all missing -> `missing`.
+  - `deep_merge`: objects merge recursively; arrays and scalars are replaced.
+  - `pick`/`omit`: `paths` is a string or array of strings (path syntax).
+  - `pick`/`omit`: conflicting paths (e.g. `a` and `a.b`) are errors.
+  - `omit`: terminal array index in path is an error; traversal indexes are allowed.
+  - `object_flatten`: arrays are preserved as values (not flattened).
+  - `object_flatten`: keys containing `[` or `]` are errors.
+  - `object_flatten`: empty keys are errors.
+  - `object_unflatten`: array indexes in paths are errors.
+- Array ops:
+  - Array args `missing`/`null` are treated as empty arrays.
+  - `map`/`flat_map`: element expr `missing` becomes `null`.
+  - `filter`/`partition`/`find`/`find_index`: predicate `missing`/`null` -> `false`.
+  - `group_by`/`key_by`/`distinct_by`/`sort_by`: key expr `missing`/`null` is an error.
+  - `contains`/`index_of`/`unique`: same equality semantics as `==` (string/number/bool + null, arrays/objects are errors).
+  - `sort_by`: keys must be a single type (string/number/bool). `order` is `asc`/`desc`.
+  - `find` returns `null` when not found; `find_index`/`index_of` return `-1`.
+  - `sum`/`avg`/`min`/`max` return `null` for empty arrays.
+  - `reduce` returns `null` for empty arrays; `fold` returns `initial` for empty arrays.
 
 ## Type casting (`type`)
 
@@ -251,6 +374,7 @@ Forms:
 
 ## Runtime semantics
 
+- `record_when` is evaluated before any mappings; if `false` or error, the record is skipped
 - `mappings` are evaluated top to bottom; `out.*` can only reference previously produced values
 - forward `out.*` references are validation errors (runtime may see them as `missing`)
 - if `source/value/expr` is `missing`, apply `default/required` rules

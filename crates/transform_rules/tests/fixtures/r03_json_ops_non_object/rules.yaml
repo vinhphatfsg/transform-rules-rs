@@ -1,0 +1,9 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "keys"
+    expr:
+      op: "keys"
+      args: [ { ref: "input.obj" } ]

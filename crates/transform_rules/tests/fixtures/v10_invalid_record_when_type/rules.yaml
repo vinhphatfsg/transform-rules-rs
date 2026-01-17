@@ -1,0 +1,8 @@
+version: 1
+input:
+  format: json
+  json: {}
+record_when: "nope"
+mappings:
+  - target: "name"
+    source: "name"

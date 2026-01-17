@@ -1,0 +1,7 @@
+[
+  {
+    "keys": ["a", "b"],
+    "values": [1, 2],
+    "entries": [ { "key": "a", "value": 1 }, { "key": "b", "value": 2 } ]
+  }
+]

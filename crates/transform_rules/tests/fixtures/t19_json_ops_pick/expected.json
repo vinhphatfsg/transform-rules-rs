@@ -1,0 +1,9 @@
+[
+  {
+    "picked": {
+      "id": 1,
+      "profile": { "name": "Ada" },
+      "items": [ { "id": "i1" } ]
+    }
+  }
+]

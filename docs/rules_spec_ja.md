@@ -18,6 +18,10 @@ input:
 output:
   name: "Record"
 
+record_when:
+  op: ">="
+  args: [ { ref: "input.score" }, 10 ]
+
 mappings:
   - target: "user.id"
     source: "id"
@@ -35,6 +39,7 @@ mappings:
 - `input`（必須）: 入力形式と設定
 - `mappings`（必須）: 変換ルール（上から順に評価）
 - `output`（任意）: メタ情報（DTO 生成名など）
+- `record_when`（任意）: レコードを出力するか判定する boolean 式
 
 ## Input
 
@@ -74,6 +79,16 @@ input:
 - 既定は「変換結果の JSON 配列」
 - CLI の `transform --ndjson` 指定時は 1 レコード 1 行の NDJSON を逐次出力
 - `records_path` が object を指す場合は 1 レコードのみ出力
+
+## レコードフィルタ（`record_when`）
+
+`record_when` はレコードごとに 1 回評価される boolean 式です。
+`false` の場合、そのレコードはスキップされ出力されません。
+評価エラーまたは boolean 以外の値になった場合はレコードをスキップし、warning を出力します。
+
+- `record_when` の式は `when` と同じ構文
+- 参照できるのは `input.*` と `context.*`
+- `out.*` は出力前のため参照不可
 
 ## Mapping
 
@@ -119,6 +134,11 @@ input:
 - `context.*`: 実行時に注入される外部コンテキスト
 - `out.*`: 既に生成済みの出力（前段 mapping のみ）
 
+### ローカル参照（配列 op 内のみ）
+- `item.value`: 現在の要素
+- `item.index`: 0 始まりのインデックス
+- `acc.value`: reduce/fold のアキュムレータ
+
 `source` は **単一キー** の場合のみ namespace を省略可能（省略時は `input.*`）。
 ドット/配列インデックスを使う場合は `input.*` を明示する必要がある。
 `expr` の `ref` は namespace 必須。
@@ -154,8 +174,40 @@ expr:
 - リテラル: string/number/bool/null
 - 参照: `{ ref: "input.user_id" }`
 - オペレーション: `{ op: "<name>", args: [Expr, ...] }`
+- チェーン: `{ chain: [ Expr, { op: "<name>", args: [...] }, ... ] }`
+
+### チェーン（パイプ構文）
+
+`chain` は先頭の式を評価し、以降の `op` に前段の結果を **第1引数として自動注入** します。
+2 個目以降は `{ op: ... }` のみ許可され、`args` は省略可能です。
+
+```yaml
+expr:
+  chain:
+    - { ref: "input.name" }
+    - { op: "trim" }
+    - { op: "replace", args: [ " ", "_" , "all" ] }
+    - { op: "lowercase" }
+```
 
 ## オペレーション一覧（v1）
+
+### カテゴリ
+
+- 文字列系: `concat`, `to_string`, `trim`, `lowercase`, `uppercase`, `replace`, `split`, `pad_start`, `pad_end`
+- JSON 操作: `merge`, `deep_merge`, `get`, `pick`, `omit`, `keys`, `values`, `entries`, `object_flatten`, `object_unflatten`
+- 配列 op: `map`, `filter`, `flat_map`, `flatten`, `take`, `drop`, `slice`, `chunk`, `zip`, `zip_with`, `unzip`, `group_by`, `key_by`, `partition`, `unique`, `distinct_by`, `sort_by`, `find`, `find_index`, `index_of`, `contains`, `sum`, `avg`, `min`, `max`, `reduce`, `fold`
+- 数値系: `+`, `-`, `*`, `/`, `round`, `to_base`, `sum`, `avg`, `min`, `max`
+- 日付系: `date_format`, `to_unixtime`
+- 論理演算: `and`, `or`, `not`
+- 比較演算: `==`, `!=`, `<`, `<=`, `>`, `>=`, `~=`
+- 型変換: `string`, `int`, `float`, `bool`
+
+### 命名規則
+
+- `to_*`: 変換系（`to_string`, `to_base`, `to_unixtime`）
+- `*_by`: キー指定の派生（`group_by`, `key_by`, `distinct_by`, `sort_by`）
+- `object_*`: object 構造専用（`object_flatten`, `object_unflatten`）
 
 | op名 | 引数 | 説明 | 使用・変換例 |
 | --- | --- | --- | --- |
@@ -189,6 +241,53 @@ expr:
 | `>` | `2 expr` | 数値比較。 | `args: [ { ref: "input.score" }, 90 ]`<br>`{"score": 95} -> true` |
 | `>=` | `2 expr` | 数値比較。 | `args: [ { ref: "input.score" }, 90 ]`<br>`{"score": 90} -> true` |
 | `~=` | `2 expr` | 正規表現マッチ（左辺文字列を右辺パターンで評価）。 | `args: [ { ref: "input.email" }, ".+@example\\.com$" ]`<br>`{"email":"a@example.com"} -> true` |
+
+## JSON 操作（v1）
+
+| op名 | 引数 | 説明 |
+| --- | --- | --- |
+| `merge` | `obj1, obj2, ...` | 浅い merge（右勝ち）。 |
+| `deep_merge` | `obj1, obj2, ...` | object は再帰 merge、配列は置換。 |
+| `get` | `obj_or_array, path` | パスの値を取得。存在しない場合は `missing`。 |
+| `pick` | `obj, paths` | 指定パスのみ残す（`paths` は文字列 or 配列）。 |
+| `omit` | `obj, paths` | 指定パスを削除する（`paths` は文字列 or 配列）。 |
+| `keys` | `obj` | キーの配列。 |
+| `values` | `obj` | 値の配列。 |
+| `entries` | `obj` | `{key, value}` の配列。 |
+| `object_flatten` | `obj` | オブジェクトを path キーで平坦化。 |
+| `object_unflatten` | `obj` | path キーからオブジェクトを再構成。 |
+
+## 配列オペレーション（v1）
+
+| op名 | 引数 | 説明 |
+| --- | --- | --- |
+| `map` | `array, expr` | 要素を変換する。 |
+| `filter` | `array, predicate` | 条件に一致した要素を残す。 |
+| `flat_map` | `array, expr` | `map` + `flatten(1)`。 |
+| `flatten` | `array, depth?` | 指定深さで平坦化する。 |
+| `take` | `array, count` | 先頭/末尾から取得する（負数は末尾基準）。 |
+| `drop` | `array, count` | 先頭/末尾から除外する（負数は末尾基準）。 |
+| `slice` | `array, start, end?` | 範囲抽出（`end` は排他、負数は末尾基準）。 |
+| `chunk` | `array, size` | 固定サイズで分割する。 |
+| `zip` | `array1, array2, ...` | 最短の配列長で束ねる。 |
+| `zip_with` | `array1, array2, ..., expr` | 要素ごとに式で合成する。 |
+| `unzip` | `array` | 配列の配列を列配列に変換する。 |
+| `group_by` | `array, key_expr` | キーでグルーピングする。 |
+| `key_by` | `array, key_expr` | キーで map 化する（重複は後勝ち）。 |
+| `partition` | `array, predicate` | 条件で 2 配列に分割する。 |
+| `unique` | `array` | 等価な要素を除去する。 |
+| `distinct_by` | `array, key_expr` | キーで重複を除去する。 |
+| `sort_by` | `array, key_expr, order?` | キーでソートする。 |
+| `find` | `array, predicate` | 最初の一致要素を返す。 |
+| `find_index` | `array, predicate` | 最初の一致インデックスを返す。 |
+| `index_of` | `array, value` | 最初の一致インデックスを返す。 |
+| `contains` | `array, value` | 含まれているかを返す。 |
+| `sum` | `array` | 合計値を返す。 |
+| `avg` | `array` | 平均値を返す。 |
+| `min` | `array` | 最小値を返す。 |
+| `max` | `array` | 最大値を返す。 |
+| `reduce` | `array, expr` | 累積式で縮約する。 |
+| `fold` | `array, initial, expr` | 初期値付きで縮約する。 |
 
 ## 評価ルール（補足）
 
@@ -241,6 +340,30 @@ expr:
 - `~=`:
   - 左辺・パターンともに文字列。
   - パターンが不正な場合はエラー（Rust regex 準拠）。
+- JSON ops:
+  - `get`: base が `missing`/`null` またはパス未存在なら `missing`。
+  - `get`: path は空文字不可の valid path 文字列。
+  - オブジェクト系（`merge`/`deep_merge`/`pick`/`omit`/`keys`/`values`/`entries`/`object_*`）:
+    - `null` はエラー。base は object 必須。
+  - `merge`/`deep_merge`: missing はスキップ、全 missing は `missing`。
+  - `deep_merge`: object は再帰、配列/スカラーは置換。
+  - `pick`/`omit`: `paths` は文字列または文字列配列（パス構文）。
+  - `pick`/`omit`: 競合パス（`a` と `a.b`）はエラー。
+  - `omit`: 終端が配列インデックスの path はエラー（途中のインデックスは可）。
+  - `object_flatten`: 配列は値として保持（展開しない）。
+  - `object_flatten`: `[` または `]` を含むキーはエラー。
+  - `object_flatten`: 空キーはエラー。
+  - `object_unflatten`: 配列インデックスを含む path はエラー。
+- 配列 op:
+  - 配列引数が `missing`/`null` の場合は空配列扱い。
+  - `map`/`flat_map`: 要素式が `missing` の場合は `null`。
+  - `filter`/`partition`/`find`/`find_index`: 条件式の `missing`/`null` は `false`。
+  - `group_by`/`key_by`/`distinct_by`/`sort_by`: キー式の `missing`/`null` はエラー。
+  - `contains`/`index_of`/`unique`: `==` と同じ等価判定（string/number/bool + null、配列/オブジェクトはエラー）。
+  - `sort_by`: キーは全て同じ型（string/number/bool）。`order` は `asc`/`desc`。
+  - `find` は未検出で `null`、`find_index`/`index_of` は未検出で `-1`。
+  - `sum`/`avg`/`min`/`max` は空配列で `null`。
+  - `reduce` は空配列で `null`、`fold` は空配列で `initial` を返す。
 
 ## 型変換（`type`）
 
@@ -251,6 +374,7 @@ expr:
 
 ## 実行時セマンティクス
 
+- `record_when` は mapping の前に評価し、`false`/評価エラーならレコードをスキップ
 - `mappings` は上から順に評価し、`out.*` は過去に生成した値のみ参照可能
 - 未来の `out.*` 参照はバリデーションエラー（実行時は `missing` になりうる）
 - `source/value/expr` が `missing` の場合は `default/required` の規則を適用

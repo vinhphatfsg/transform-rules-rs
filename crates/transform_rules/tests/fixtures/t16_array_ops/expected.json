@@ -1,0 +1,55 @@
+[
+  {
+    "map_plus": [2, 3, 4, 3],
+    "map_index": [0, 1, 2, 3],
+    "filter_gt1": [2, 3, 2],
+    "flat_map": [1, 2, 3, 4, 5],
+    "flatten_depth2": [1, 2, 3, 4],
+    "take_2": [1, 2],
+    "take_last_2": [3, 2],
+    "take_min_i64": [1, 2, 3, 2],
+    "drop_2": [3, 2],
+    "drop_last_2": [1, 2],
+    "drop_min_i64": [],
+    "slice_1_to_minus1": [2, 3],
+    "chunk_2": [[1, 2], [3, 2]],
+    "zip_vs_strings": [[1, "a"], [2, "b"], [3, "a"]],
+    "zip_with_concat": ["1-a", "2-b", "3-a"],
+    "unzip_pairs": [[1, 2, 3], ["a", "b", "c"]],
+    "group_by_id": {
+      "1": [
+        {"id": 1, "name": "a", "score": 2},
+        {"id": 1, "name": "c", "score": 3}
+      ],
+      "2": [
+        {"id": 2, "name": "b", "score": 1}
+      ]
+    },
+    "key_by_id": {
+      "1": {"id": 1, "name": "c", "score": 3},
+      "2": {"id": 2, "name": "b", "score": 1}
+    },
+    "partition_gt1": [[2, 3, 2], [1]],
+    "unique_strings": ["a", "b"],
+    "distinct_by_id": [
+      {"id": 1, "name": "a", "score": 2},
+      {"id": 2, "name": "b", "score": 1}
+    ],
+    "sort_by_score": [
+      {"id": 2, "name": "b", "score": 1},
+      {"id": 1, "name": "a", "score": 2},
+      {"id": 1, "name": "c", "score": 3}
+    ],
+    "find_gt1": 2,
+    "find_index_gt1": 1,
+    "index_of_3": 2,
+    "contains_4": false,
+    "sum_nums": 6,
+    "avg_nums": 2,
+    "min_nums": 1,
+    "max_nums": 3,
+    "reduce_sum": 8,
+    "fold_sum": 18,
+    "fold_nested_map_with_acc": 256
+  }
+]

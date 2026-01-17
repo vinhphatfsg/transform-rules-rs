@@ -1,0 +1,9 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "obj"
+    expr:
+      op: "object_unflatten"
+      args: [ { ref: "input.flat" } ]

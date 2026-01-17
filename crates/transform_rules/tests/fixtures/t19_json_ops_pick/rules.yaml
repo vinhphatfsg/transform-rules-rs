@@ -1,0 +1,11 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "picked"
+    expr:
+      op: "pick"
+      args:
+        - { ref: "input.obj" }
+        - ["id", "profile.name", "items[0].id"]

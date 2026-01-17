@@ -1,0 +1,12 @@
+version: 1
+input:
+  format: json
+  json: {}
+record_when:
+  op: "~="
+  args:
+    - { ref: "input.name" }
+    - "^b.{3,}$"
+mappings:
+  - target: "name"
+    source: "name"

@@ -17,4 +17,9 @@ mappings:
         - "-"
         - { ref: "out.price" }
   - target: "tenant"
-    source: "context.tenant_id"
+    expr:
+      chain:
+        - { ref: "context.tenant_master" }
+        - { op: "find", args: [ { op: "==", args: [ { ref: "item.value.id" }, { ref: "out.id" } ] } ] }
+        - { op: "get", args: [ "tenant_id" ] }
+        - { op: "replace", args: [ "-", "_" , "all" ] }

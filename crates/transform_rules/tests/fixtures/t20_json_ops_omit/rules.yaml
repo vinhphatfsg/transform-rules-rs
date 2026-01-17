@@ -1,0 +1,11 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "omitted"
+    expr:
+      op: "omit"
+      args:
+        - { ref: "input.obj" }
+        - ["profile.ssn", "items[0].x"]

@@ -427,6 +427,10 @@ fn list_ops_success() {
 
     let response = server.send(&request);
     assert!(response["result"]["meta"]["ops"]["type_casts"].is_array());
+    assert!(response["result"]["meta"]["ops"]["categories"]["json_ops"].is_array());
+    assert!(response["result"]["meta"]["ops"]["categories"]["array_ops"].is_array());
+    assert!(response["result"]["meta"]["ops"]["category_docs"]["json_ops"]["examples"].is_array());
+    assert!(response["result"]["meta"]["ops"]["category_docs"]["string_ops"]["examples"].is_array());
 
     server.shutdown();
 }

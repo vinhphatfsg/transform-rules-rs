@@ -284,7 +284,11 @@ fn run_transform_ndjson(
 
         emit_transform_warnings(&item.warnings, error_format);
 
-        let output_text = match serde_json::to_string(&item.output) {
+        let output = match item.output {
+            Some(output) => output,
+            None => continue,
+        };
+        let output_text = match serde_json::to_string(&output) {
             Ok(text) => text,
             Err(err) => {
                 eprintln!("failed to serialize output JSON: {}", err);

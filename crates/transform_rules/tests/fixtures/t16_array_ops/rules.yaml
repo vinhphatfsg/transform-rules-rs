@@ -1,0 +1,181 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "map_plus"
+    expr:
+      op: "map"
+      args:
+        - { ref: "input.values" }
+        - { op: "+", args: [ { ref: "item.value" }, 1 ] }
+  - target: "map_index"
+    expr:
+      op: "map"
+      args:
+        - { ref: "input.values" }
+        - { ref: "item.index" }
+  - target: "filter_gt1"
+    expr:
+      op: "filter"
+      args:
+        - { ref: "input.values" }
+        - { op: ">", args: [ { ref: "item.value" }, 1 ] }
+  - target: "flat_map"
+    expr:
+      op: "flat_map"
+      args:
+        - { ref: "input.nested_arrays" }
+        - { ref: "item.value" }
+  - target: "flatten_depth2"
+    expr:
+      op: "flatten"
+      args:
+        - { ref: "input.nested" }
+        - 2
+  - target: "take_2"
+    expr:
+      op: "take"
+      args: [ { ref: "input.values" }, 2 ]
+  - target: "take_last_2"
+    expr:
+      op: "take"
+      args: [ { ref: "input.values" }, -2 ]
+  - target: "take_min_i64"
+    expr:
+      op: "take"
+      args: [ { ref: "input.values" }, "-9223372036854775808" ]
+  - target: "drop_2"
+    expr:
+      op: "drop"
+      args: [ { ref: "input.values" }, 2 ]
+  - target: "drop_last_2"
+    expr:
+      op: "drop"
+      args: [ { ref: "input.values" }, -2 ]
+  - target: "drop_min_i64"
+    expr:
+      op: "drop"
+      args: [ { ref: "input.values" }, "-9223372036854775808" ]
+  - target: "slice_1_to_minus1"
+    expr:
+      op: "slice"
+      args: [ { ref: "input.values" }, 1, -1 ]
+  - target: "chunk_2"
+    expr:
+      op: "chunk"
+      args: [ { ref: "input.values" }, 2 ]
+  - target: "zip_vs_strings"
+    expr:
+      op: "zip"
+      args: [ { ref: "input.values" }, { ref: "input.strings" } ]
+  - target: "zip_with_concat"
+    expr:
+      op: "zip_with"
+      args:
+        - { ref: "input.values" }
+        - { ref: "input.strings" }
+        - op: "concat"
+          args:
+            - { op: "to_string", args: [ { ref: "item.value[0]" } ] }
+            - "-"
+            - { ref: "item.value[1]" }
+  - target: "unzip_pairs"
+    expr:
+      op: "unzip"
+      args: [ { ref: "input.pairs" } ]
+  - target: "group_by_id"
+    expr:
+      op: "group_by"
+      args:
+        - { ref: "input.objects" }
+        - { ref: "item.value.id" }
+  - target: "key_by_id"
+    expr:
+      op: "key_by"
+      args:
+        - { ref: "input.objects" }
+        - { ref: "item.value.id" }
+  - target: "partition_gt1"
+    expr:
+      op: "partition"
+      args:
+        - { ref: "input.values" }
+        - { op: ">", args: [ { ref: "item.value" }, 1 ] }
+  - target: "unique_strings"
+    expr:
+      op: "unique"
+      args: [ { ref: "input.strings" } ]
+  - target: "distinct_by_id"
+    expr:
+      op: "distinct_by"
+      args:
+        - { ref: "input.objects" }
+        - { ref: "item.value.id" }
+  - target: "sort_by_score"
+    expr:
+      op: "sort_by"
+      args:
+        - { ref: "input.objects" }
+        - { ref: "item.value.score" }
+  - target: "find_gt1"
+    expr:
+      op: "find"
+      args:
+        - { ref: "input.values" }
+        - { op: ">", args: [ { ref: "item.value" }, 1 ] }
+  - target: "find_index_gt1"
+    expr:
+      op: "find_index"
+      args:
+        - { ref: "input.values" }
+        - { op: ">", args: [ { ref: "item.value" }, 1 ] }
+  - target: "index_of_3"
+    expr:
+      op: "index_of"
+      args: [ { ref: "input.values" }, 3 ]
+  - target: "contains_4"
+    expr:
+      op: "contains"
+      args: [ { ref: "input.values" }, 4 ]
+  - target: "sum_nums"
+    expr:
+      op: "sum"
+      args: [ { ref: "input.nums" } ]
+  - target: "avg_nums"
+    expr:
+      op: "avg"
+      args: [ { ref: "input.nums" } ]
+  - target: "min_nums"
+    expr:
+      op: "min"
+      args: [ { ref: "input.nums" } ]
+  - target: "max_nums"
+    expr:
+      op: "max"
+      args: [ { ref: "input.nums" } ]
+  - target: "reduce_sum"
+    expr:
+      op: "reduce"
+      args:
+        - { ref: "input.values" }
+        - { op: "+", args: [ { ref: "acc.value" }, { ref: "item.value" } ] }
+  - target: "fold_sum"
+    expr:
+      op: "fold"
+      args:
+        - { ref: "input.values" }
+        - 10
+        - { op: "+", args: [ { ref: "acc.value" }, { ref: "item.value" } ] }
+  - target: "fold_nested_map_with_acc"
+    expr:
+      op: "fold"
+      args:
+        - { ref: "input.values" }
+        - 1
+        - op: "sum"
+          args:
+            - op: "map"
+              args:
+                - { ref: "input.values" }
+                - { ref: "acc.value" }

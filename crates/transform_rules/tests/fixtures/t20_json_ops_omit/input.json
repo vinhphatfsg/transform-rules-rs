@@ -1,0 +1,7 @@
+{
+  "obj": {
+    "id": 1,
+    "profile": { "name": "Ada", "email": "a@x", "ssn": "xxx" },
+    "items": [ { "id": "i1", "x": 1 }, { "id": "i2", "x": 2 } ]
+  }
+}

@@ -1,0 +1,4 @@
+{
+  "base": { "a": 1, "b": 2, "nested": { "x": 1 } },
+  "override": { "b": 9, "c": 3, "nested": { "y": 2 } }
+}

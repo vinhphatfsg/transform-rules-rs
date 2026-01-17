@@ -185,6 +185,150 @@ fn t13_expr_extended() {
     assert_eq!(output, expected);
 }
 
+#[test]
+fn t14_expr_chain() {
+    let base = fixtures_dir().join("t14_expr_chain");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_json(&base.join("expected.json"));
+    let output = transform(&rule, &input, None).expect("transform failed");
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn t15_record_when() {
+    let base = fixtures_dir().join("t15_record_when");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_json(&base.join("expected.json"));
+    let output = transform(&rule, &input, None).expect("transform failed");
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn t16_array_ops() {
+    let base = fixtures_dir().join("t16_array_ops");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_json(&base.join("expected.json"));
+    let output = transform(&rule, &input, None).expect("transform failed");
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn t17_json_ops_merge() {
+    let base = fixtures_dir().join("t17_json_ops_merge");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_json(&base.join("expected.json"));
+    let output = transform(&rule, &input, None).expect("transform failed");
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn t18_json_ops_deep_merge() {
+    let base = fixtures_dir().join("t18_json_ops_deep_merge");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_json(&base.join("expected.json"));
+    let output = transform(&rule, &input, None).expect("transform failed");
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn t19_json_ops_pick() {
+    let base = fixtures_dir().join("t19_json_ops_pick");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_json(&base.join("expected.json"));
+    let output = transform(&rule, &input, None).expect("transform failed");
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn t20_json_ops_omit() {
+    let base = fixtures_dir().join("t20_json_ops_omit");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_json(&base.join("expected.json"));
+    let output = transform(&rule, &input, None).expect("transform failed");
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn t21_json_ops_keys_values_entries() {
+    let base = fixtures_dir().join("t21_json_ops_keys_values_entries");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_json(&base.join("expected.json"));
+    let output = transform(&rule, &input, None).expect("transform failed");
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn t22_json_ops_object_flatten() {
+    let base = fixtures_dir().join("t22_json_ops_object_flatten");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_json(&base.join("expected.json"));
+    let output = transform(&rule, &input, None).expect("transform failed");
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn t23_json_ops_object_unflatten() {
+    let base = fixtures_dir().join("t23_json_ops_object_unflatten");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_json(&base.join("expected.json"));
+    let output = transform(&rule, &input, None).expect("transform failed");
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn t24_json_ops_missing() {
+    let base = fixtures_dir().join("t24_json_ops_missing");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_json(&base.join("expected.json"));
+    let output = transform(&rule, &input, None).expect("transform failed");
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn t25_json_ops_get_chain() {
+    let base = fixtures_dir().join("t25_json_ops_get_chain");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let context = load_optional_json(&base.join("context.json"));
+    let expected = load_json(&base.join("expected.json"));
+    let output = transform(&rule, &input, context.as_ref()).expect("transform failed");
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn t26_chain_all_ops() {
+    let base = fixtures_dir().join("t26_chain_all_ops");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_json(&base.join("expected.json"));
+    let output = transform(&rule, &input, None).expect("transform failed");
+    assert_eq!(output, expected);
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct ExpectedTransformError {
     kind: String,
@@ -194,6 +338,84 @@ struct ExpectedTransformError {
 #[test]
 fn r01_float_non_finite() {
     let base = fixtures_dir().join("r01_float_non_finite");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_expected_error(&base.join("expected_error.json"));
+
+    let err = transform(&rule, &input, None).expect_err("expected transform error");
+    assert_eq!(transform_kind_to_str(&err.kind), expected.kind);
+    assert_eq!(err.path, expected.path);
+}
+
+#[test]
+fn r02_json_ops_invalid_path_pick() {
+    let base = fixtures_dir().join("r02_json_ops_invalid_path_pick");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_expected_error(&base.join("expected_error.json"));
+
+    let err = transform(&rule, &input, None).expect_err("expected transform error");
+    assert_eq!(transform_kind_to_str(&err.kind), expected.kind);
+    assert_eq!(err.path, expected.path);
+}
+
+#[test]
+fn r03_json_ops_non_object() {
+    let base = fixtures_dir().join("r03_json_ops_non_object");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_expected_error(&base.join("expected_error.json"));
+
+    let err = transform(&rule, &input, None).expect_err("expected transform error");
+    assert_eq!(transform_kind_to_str(&err.kind), expected.kind);
+    assert_eq!(err.path, expected.path);
+}
+
+#[test]
+fn r04_json_ops_null_arg() {
+    let base = fixtures_dir().join("r04_json_ops_null_arg");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_expected_error(&base.join("expected_error.json"));
+
+    let err = transform(&rule, &input, None).expect_err("expected transform error");
+    assert_eq!(transform_kind_to_str(&err.kind), expected.kind);
+    assert_eq!(err.path, expected.path);
+}
+
+#[test]
+fn r05_json_ops_unflatten_array_index() {
+    let base = fixtures_dir().join("r05_json_ops_unflatten_array_index");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_expected_error(&base.join("expected_error.json"));
+
+    let err = transform(&rule, &input, None).expect_err("expected transform error");
+    assert_eq!(transform_kind_to_str(&err.kind), expected.kind);
+    assert_eq!(err.path, expected.path);
+}
+
+#[test]
+fn r06_json_ops_flatten_brackets() {
+    let base = fixtures_dir().join("r06_json_ops_flatten_brackets");
+    let rule = load_rule(&base.join("rules.yaml"));
+    let input = fs::read_to_string(base.join("input.json"))
+        .unwrap_or_else(|_| panic!("failed to read input.json"));
+    let expected = load_expected_error(&base.join("expected_error.json"));
+
+    let err = transform(&rule, &input, None).expect_err("expected transform error");
+    assert_eq!(transform_kind_to_str(&err.kind), expected.kind);
+    assert_eq!(err.path, expected.path);
+}
+
+#[test]
+fn r07_json_ops_flatten_empty_key() {
+    let base = fixtures_dir().join("r07_json_ops_flatten_empty_key");
     let rule = load_rule(&base.join("rules.yaml"));
     let input = fs::read_to_string(base.join("input.json"))
         .unwrap_or_else(|_| panic!("failed to read input.json"));

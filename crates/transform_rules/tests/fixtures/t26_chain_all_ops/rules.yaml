@@ -1,0 +1,251 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "json_merge"
+    expr:
+      chain:
+        - { ref: "input.base" }
+        - op: "merge"
+          args:
+            - { ref: "input.override" }
+  - target: "json_deep_merge"
+    expr:
+      chain:
+        - { ref: "input.deep_left" }
+        - op: "deep_merge"
+          args:
+            - { ref: "input.deep_right" }
+  - target: "json_get"
+    expr:
+      chain:
+        - { ref: "input.pick_source" }
+        - op: "get"
+          args: ["b.c"]
+  - target: "json_pick"
+    expr:
+      chain:
+        - { ref: "input.pick_source" }
+        - op: "pick"
+          args:
+            - { ref: "input.pick_paths" }
+  - target: "json_omit"
+    expr:
+      chain:
+        - { ref: "input.omit_source" }
+        - op: "omit"
+          args:
+            - { ref: "input.omit_paths" }
+  - target: "json_keys"
+    expr:
+      chain:
+        - { ref: "input.base" }
+        - op: "keys"
+          args: []
+  - target: "json_values"
+    expr:
+      chain:
+        - { ref: "input.base" }
+        - op: "values"
+          args: []
+  - target: "json_entries"
+    expr:
+      chain:
+        - { ref: "input.base" }
+        - op: "entries"
+          args: []
+  - target: "json_object_flatten"
+    expr:
+      chain:
+        - { ref: "input.flatten_source" }
+        - op: "object_flatten"
+          args: []
+  - target: "json_object_unflatten"
+    expr:
+      chain:
+        - { ref: "input.unflatten_source" }
+        - op: "object_unflatten"
+          args: []
+  - target: "array_map"
+    expr:
+      chain:
+        - { ref: "input.array_values" }
+        - op: "map"
+          args:
+            - { op: "+", args: [ { ref: "item.value" }, 1 ] }
+  - target: "array_filter"
+    expr:
+      chain:
+        - { ref: "input.array_values" }
+        - op: "filter"
+          args:
+            - { op: ">", args: [ { ref: "item.value" }, 2 ] }
+  - target: "array_flat_map"
+    expr:
+      chain:
+        - { ref: "input.nested_arrays" }
+        - op: "flat_map"
+          args:
+            - { ref: "item.value" }
+  - target: "array_flatten"
+    expr:
+      chain:
+        - { ref: "input.nested" }
+        - op: "flatten"
+          args: [2]
+  - target: "array_take"
+    expr:
+      chain:
+        - { ref: "input.array_values" }
+        - op: "take"
+          args: [2]
+  - target: "array_drop"
+    expr:
+      chain:
+        - { ref: "input.array_values" }
+        - op: "drop"
+          args: [-2]
+  - target: "array_slice"
+    expr:
+      chain:
+        - { ref: "input.array_values" }
+        - op: "slice"
+          args: [1, -1]
+  - target: "array_chunk"
+    expr:
+      chain:
+        - { ref: "input.array_values" }
+        - op: "chunk"
+          args: [2]
+  - target: "array_zip"
+    expr:
+      chain:
+        - { ref: "input.array_values" }
+        - op: "zip"
+          args:
+            - { ref: "input.strings" }
+  - target: "array_zip_with"
+    expr:
+      chain:
+        - { ref: "input.array_values" }
+        - op: "zip_with"
+          args:
+            - { ref: "input.strings" }
+            - op: "concat"
+              args:
+                - { op: "to_string", args: [ { ref: "item.value[0]" } ] }
+                - "-"
+                - { ref: "item.value[1]" }
+  - target: "array_unzip"
+    expr:
+      chain:
+        - { ref: "input.pairs" }
+        - op: "unzip"
+          args: []
+  - target: "array_group_by"
+    expr:
+      chain:
+        - { ref: "input.objects" }
+        - op: "group_by"
+          args:
+            - { ref: "item.value.id" }
+  - target: "array_key_by"
+    expr:
+      chain:
+        - { ref: "input.objects" }
+        - op: "key_by"
+          args:
+            - { ref: "item.value.id" }
+  - target: "array_partition"
+    expr:
+      chain:
+        - { ref: "input.array_values" }
+        - op: "partition"
+          args:
+            - { op: ">", args: [ { ref: "item.value" }, 3 ] }
+  - target: "array_unique"
+    expr:
+      chain:
+        - { ref: "input.strings" }
+        - op: "unique"
+          args: []
+  - target: "array_distinct_by"
+    expr:
+      chain:
+        - { ref: "input.objects" }
+        - op: "distinct_by"
+          args:
+            - { ref: "item.value.id" }
+  - target: "array_sort_by"
+    expr:
+      chain:
+        - { ref: "input.objects" }
+        - op: "sort_by"
+          args:
+            - { ref: "item.value.score" }
+  - target: "array_find"
+    expr:
+      chain:
+        - { ref: "input.array_values" }
+        - op: "find"
+          args:
+            - { op: ">", args: [ { ref: "item.value" }, 3 ] }
+  - target: "array_find_index"
+    expr:
+      chain:
+        - { ref: "input.array_values" }
+        - op: "find_index"
+          args:
+            - { op: ">", args: [ { ref: "item.value" }, 3 ] }
+  - target: "array_index_of"
+    expr:
+      chain:
+        - { ref: "input.array_values" }
+        - op: "index_of"
+          args: [4]
+  - target: "array_contains"
+    expr:
+      chain:
+        - { ref: "input.array_values" }
+        - op: "contains"
+          args: [5]
+  - target: "array_sum"
+    expr:
+      chain:
+        - { ref: "input.nums" }
+        - op: "sum"
+          args: []
+  - target: "array_avg"
+    expr:
+      chain:
+        - { ref: "input.nums" }
+        - op: "avg"
+          args: []
+  - target: "array_min"
+    expr:
+      chain:
+        - { ref: "input.nums" }
+        - op: "min"
+          args: []
+  - target: "array_max"
+    expr:
+      chain:
+        - { ref: "input.nums" }
+        - op: "max"
+          args: []
+  - target: "array_reduce"
+    expr:
+      chain:
+        - { ref: "input.array_values" }
+        - op: "reduce"
+          args:
+            - { op: "+", args: [ { ref: "acc.value" }, { ref: "item.value" } ] }
+  - target: "array_fold"
+    expr:
+      chain:
+        - { ref: "input.array_values" }
+        - op: "fold"
+          args:
+            - 10
+            - { op: "+", args: [ { ref: "acc.value" }, { ref: "item.value" } ] }

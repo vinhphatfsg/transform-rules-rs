@@ -1,0 +1,17 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "keys"
+    expr:
+      op: "keys"
+      args: [ { ref: "input.map" } ]
+  - target: "values"
+    expr:
+      op: "values"
+      args: [ { ref: "input.map" } ]
+  - target: "entries"
+    expr:
+      op: "entries"
+      args: [ { ref: "input.map" } ]

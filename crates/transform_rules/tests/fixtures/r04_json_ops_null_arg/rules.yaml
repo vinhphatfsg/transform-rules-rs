@@ -1,0 +1,11 @@
+version: 1
+input:
+  format: json
+  json: {}
+mappings:
+  - target: "merged"
+    expr:
+      op: "merge"
+      args:
+        - null
+        - { ref: "input.obj" }

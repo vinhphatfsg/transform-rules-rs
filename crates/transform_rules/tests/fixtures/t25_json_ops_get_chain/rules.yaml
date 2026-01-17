@@ -1,0 +1,20 @@
+version: 1
+input:
+  format: json
+  json:
+    records_path: "items"
+mappings:
+  - target: "id"
+    source: "id"
+  - target: "price"
+    source: "price"
+    type: "float"
+  - target: "tenant"
+    expr:
+      chain:
+        - op: "find"
+          args:
+            - { ref: "context.tenant_master" }
+            - { op: "==", args: [ { ref: "item.value.id" }, { ref: "out.id" } ] }
+        - op: "get"
+          args: [ "tenant_id" ]

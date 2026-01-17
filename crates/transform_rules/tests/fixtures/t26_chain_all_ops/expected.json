@@ -1,0 +1,92 @@
+[
+  {
+    "json_merge": {
+      "a": 1,
+      "b": 3,
+      "nested": {
+        "x": 1,
+        "y": 2
+      },
+      "arr": [1, 2],
+      "c": 4
+    },
+    "json_deep_merge": {
+      "a": 1,
+      "nested": {
+        "x": 1,
+        "arr": [2, 3],
+        "y": 2
+      },
+      "list": [9]
+    },
+    "json_get": 2,
+    "json_pick": {
+      "a": 1,
+      "b": {
+        "c": 2
+      }
+    },
+    "json_omit": {
+      "a": 1,
+      "b": {
+        "c": 2
+      },
+      "e": 4
+    },
+    "json_keys": ["a", "arr", "b", "nested"],
+    "json_values": [1, [1, 2], 2, {"x": 1, "y": 2}],
+    "json_entries": [
+      {"key": "a", "value": 1},
+      {"key": "arr", "value": [1, 2]},
+      {"key": "b", "value": 2},
+      {"key": "nested", "value": {"x": 1, "y": 2}}
+    ],
+    "json_object_flatten": {
+      "a.b": 1,
+      "c": 2
+    },
+    "json_object_unflatten": {
+      "a": {
+        "b": 1
+      },
+      "c": 2
+    },
+    "array_map": [2, 3, 4, 5, 6],
+    "array_filter": [3, 4, 5],
+    "array_flat_map": [1, 2, 3],
+    "array_flatten": [1, 2, 3, 4],
+    "array_take": [1, 2],
+    "array_drop": [1, 2, 3],
+    "array_slice": [2, 3, 4],
+    "array_chunk": [[1, 2], [3, 4], [5]],
+    "array_zip": [[1, "a"], [2, "b"], [3, "a"], [4, "c"], [5, "b"]],
+    "array_zip_with": ["1-a", "2-b", "3-a", "4-c", "5-b"],
+    "array_unzip": [[1, 2, 3], ["a", "b", "c"]],
+    "array_group_by": {
+      "a": [{"id": "a", "score": 2}, {"id": "a", "score": 3}],
+      "b": [{"id": "b", "score": 1}]
+    },
+    "array_key_by": {
+      "a": {"id": "a", "score": 3},
+      "b": {"id": "b", "score": 1}
+    },
+    "array_partition": [[4, 5], [1, 2, 3]],
+    "array_unique": ["a", "b", "c"],
+    "array_distinct_by": [{"id": "a", "score": 2}, {"id": "b", "score": 1}],
+    "array_sort_by": [
+      {"id": "b", "score": 1},
+      {"id": "a", "score": 2},
+      {"id": "a", "score": 3}
+    ],
+    "array_find": 4,
+    "array_find_index": 3,
+    "array_index_of": 3,
+    "array_contains": true,
+    "array_sum": 6,
+    "array_avg": 2,
+    "array_min": 1,
+    "array_max": 3,
+    "array_reduce": 15,
+    "array_fold": 25
+  }
+]
